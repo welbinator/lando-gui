@@ -89,6 +89,12 @@ function renderSiteCard(site) {
   const card = document.createElement('div');
   card.className = 'site-card';
   
+  // Validate site data
+  if (!site.app) {
+    console.error('Site missing app name:', site);
+    return;
+  }
+  
   const status = site.running === 'yes' ? 'running' : 'stopped';
   const statusText = site.running === 'yes' ? 'Running' : 'Stopped';
   
@@ -100,7 +106,7 @@ function renderSiteCard(site) {
     <div class="site-header">
       <h3 class="site-name">${site.app}</h3>
       <div style="display: flex; align-items: center; gap: 0.5rem;">
-        <button class="btn-icon" onclick="openSiteSettings('${site.app.replace(/'/g, "\\'")}')" title="Settings">⚙️</button>
+        <button class="btn-icon settings-btn" data-site="${site.app}" title="Settings">⚙️</button>
         <span class="site-status ${status}">${statusText}</span>
       </div>
     </div>
@@ -402,4 +408,15 @@ cancelSettings.addEventListener('click', () => hideSettingsModal());
 settingsForm.addEventListener('submit', handleSaveSettings);
 settingsModal.addEventListener('click', (e) => {
   if (e.target === settingsModal) hideSettingsModal();
+});
+
+// Delegate settings button clicks (since buttons are dynamically added)
+document.addEventListener('click', (e) => {
+  if (e.target.classList.contains('settings-btn') || e.target.closest('.settings-btn')) {
+    const btn = e.target.classList.contains('settings-btn') ? e.target : e.target.closest('.settings-btn');
+    const siteName = btn.getAttribute('data-site');
+    if (siteName) {
+      openSiteSettings(siteName);
+    }
+  }
 });
