@@ -88,6 +88,7 @@ async function getLandoSites() {
         // Read the .lando.yml to get the actual site name
         let siteName = dir; // fallback to folder name
         let recipe = 'Unknown';
+        let phpmyadminUrl = null;
         
         try {
           const content = await fs.readFile(landoYmlPath, 'utf-8');
@@ -99,6 +100,14 @@ async function getLandoSites() {
           // Extract recipe
           const recipeMatch = content.match(/recipe:\s*(\w+)/);
           if (recipeMatch) recipe = recipeMatch[1];
+          
+          // Check for phpMyAdmin service
+          const hasPhpMyAdmin = content.includes('type: phpmyadmin') || content.includes('type:phpmyadmin');
+          
+          if (hasPhpMyAdmin) {
+            // phpMyAdmin URL is typically on a subdomain
+            phpmyadminUrl = `http://${siteName}.lndo.site:8080`;
+          }
         } catch (e) {}
         
         // Check if this directory is already in the map (from running sites)
@@ -108,15 +117,18 @@ async function getLandoSites() {
           site.app = siteName; // Use name from .lando.yml (with dashes)
           site.recipe = recipe;
           site.urls = [`https://${siteName}.lndo.site`]; // Correct URL with dashes
+          if (phpmyadminUrl) site.phpmyadminUrl = phpmyadminUrl;
         } else {
           // Not running, add as stopped
-          sitesMap.set(fullPath, {
+          const siteData = {
             app: siteName,
             running: 'no',
             dir: fullPath,
             urls: [`https://${siteName}.lndo.site`],
             recipe: recipe
-          });
+          };
+          if (phpmyadminUrl) siteData.phpmyadminUrl = phpmyadminUrl;
+          sitesMap.set(fullPath, siteData);
         }
       } catch (e) {
         // No .lando.yml in this directory, skip
@@ -144,7 +156,7 @@ app.get('/api/sites', async (req, res) => {
 // POST /api/sites - Create new site
 app.post('/api/sites', async (req, res) => {
   try {
-    const { name, recipe, php, database, webroot } = req.body;
+    const { name, recipe, php, database, webroot, phpmyadmin } = req.body;
 
     if (!name || !recipe) {
       return res.status(400).json({ success: false, error: 'Name and recipe are required' });
@@ -183,12 +195,17 @@ app.post('/api/sites', async (req, res) => {
       landoConfig.config.database = database;
     }
 
-    const yamlContent = `name: ${landoConfig.name}
+    let yamlContent = `name: ${landoConfig.name}
 recipe: ${landoConfig.recipe}
 config:
   webroot: ${landoConfig.config.webroot}
   php: '${landoConfig.config.php}'${database ? `\n  database: ${database}` : ''}
 `;
+
+    // Add phpMyAdmin service if requested
+    if (phpmyadmin) {
+      yamlContent += `\nservices:\n  myservice:\n    type: phpmyadmin\n`;
+    }
 
     await fs.writeFile(path.join(siteDir, '.lando.yml'), yamlContent);
 
