@@ -123,6 +123,58 @@
     </div>
   </div>
 
+  <!-- Site Settings Modal -->
+  <div id="settingsModal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>⚙️ Site Settings</h2>
+        <button class="close-btn" id="closeSettings">&times;</button>
+      </div>
+
+      <form id="settingsForm">
+        <h3 id="settingsSiteName"></h3>
+        
+        <div class="form-group">
+          <label for="settingsPhp">PHP Version</label>
+          <select id="settingsPhp" name="php">
+            <option value="8.3">8.3</option>
+            <option value="8.2">8.2</option>
+            <option value="8.1">8.1</option>
+            <option value="8.0">8.0</option>
+            <option value="7.4">7.4</option>
+            <option value="7.3">7.3</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="settingsDatabase">Database</label>
+          <select id="settingsDatabase" name="database">
+            <option value="mysql:8.0">MySQL 8.0</option>
+            <option value="mysql:5.7">MySQL 5.7</option>
+            <option value="mariadb:10.6">MariaDB 10.6</option>
+            <option value="mariadb:10.5">MariaDB 10.5</option>
+            <option value="postgres:14">PostgreSQL 14</option>
+            <option value="postgres:13">PostgreSQL 13</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>
+            <input type="checkbox" id="settingsPhpmyadmin" name="phpmyadmin">
+            Enable phpMyAdmin
+          </label>
+        </div>
+
+        <p class="info">⚠️ Changes will require a rebuild to take effect.</p>
+
+        <div class="form-actions">
+          <button type="button" class="btn btn-secondary" id="cancelSettings">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save & Rebuild</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <script src="app.js"></script>
   <script>
     // Check if setup is complete

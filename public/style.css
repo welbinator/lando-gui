@@ -98,6 +98,21 @@ h1 {
   font-size: 0.875rem;
 }
 
+.btn-icon {
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0.25rem;
+  line-height: 1;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+
+.btn-icon:hover {
+  opacity: 1;
+}
+
 /* Sites Grid */
 .sites-grid {
   display: grid;
@@ -247,6 +262,11 @@ label {
   color: var(--dark);
 }
 
+label input[type="checkbox"] {
+  margin-right: 0.5rem;
+  vertical-align: middle;
+}
+
 input, select {
   width: 100%;
   padding: 0.75rem;
@@ -282,6 +302,14 @@ small {
   padding: 1rem;
   border-radius: 6px;
   margin: 1rem 1.5rem;
+}
+
+.info {
+  background: #d1ecf1;
+  color: #0c5460;
+  padding: 0.75rem;
+  border-radius: 6px;
+  margin-bottom: 1rem;
 }
 
 /* Progress */

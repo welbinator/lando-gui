@@ -1,6 +1,7 @@
 const API_URL = 'http://localhost:3000/api';
 
 let currentDeleteSite = null;
+let currentSettingsSite = null;
 
 // DOM Elements
 const sitesContainer = document.getElementById('sitesContainer');
@@ -16,6 +17,11 @@ const deleteModal = document.getElementById('deleteModal');
 const deleteSiteName = document.getElementById('deleteSiteName');
 const cancelDelete = document.getElementById('cancelDelete');
 const confirmDelete = document.getElementById('confirmDelete');
+const settingsModal = document.getElementById('settingsModal');
+const closeSettings = document.getElementById('closeSettings');
+const cancelSettings = document.getElementById('cancelSettings');
+const settingsForm = document.getElementById('settingsForm');
+const settingsSiteName = document.getElementById('settingsSiteName');
 const loading = document.getElementById('loading');
 
 // Initialize
@@ -93,7 +99,10 @@ function renderSiteCard(site) {
   card.innerHTML = `
     <div class="site-header">
       <h3 class="site-name">${site.app}</h3>
-      <span class="site-status ${status}">${statusText}</span>
+      <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <button class="btn-icon" onclick="openSiteSettings('${site.app}')" title="Settings">⚙️</button>
+        <span class="site-status ${status}">${statusText}</span>
+      </div>
     </div>
     <div class="site-info">
       <a href="${mainUrl}" target="_blank" class="site-url">${mainUrl}</a>
@@ -313,3 +322,78 @@ function showToast(message, type = 'info') {
     toast.remove();
   }, 4000);
 }
+
+// Site Settings Modal Functions
+async function openSiteSettings(siteName) {
+  currentSettingsSite = siteName;
+  settingsSiteName.textContent = siteName;
+  
+  // Fetch current site settings
+  showToast('Loading site settings...');
+  try {
+    const response = await fetch(`${API_URL}/sites/${siteName}/config`);
+    const result = await response.json();
+    
+    if (result.success) {
+      // Populate form with current values
+      document.getElementById('settingsPhp').value = result.config.php || '8.1';
+      document.getElementById('settingsDatabase').value = result.config.database || 'mysql:8.0';
+      document.getElementById('settingsPhpmyadmin').checked = result.config.hasPhpMyAdmin || false;
+      
+      settingsModal.classList.remove('hidden');
+    } else {
+      throw new Error(result.error);
+    }
+  } catch (error) {
+    showToast(`Failed to load settings: ${error.message}`, 'error');
+  }
+}
+
+function hideSettingsModal() {
+  settingsModal.classList.add('hidden');
+  currentSettingsSite = null;
+}
+
+async function handleSaveSettings(e) {
+  e.preventDefault();
+  
+  if (!currentSettingsSite) return;
+  
+  const settings = {
+    php: document.getElementById('settingsPhp').value,
+    database: document.getElementById('settingsDatabase').value,
+    phpmyadmin: document.getElementById('settingsPhpmyadmin').checked
+  };
+  
+  showToast(`Updating ${currentSettingsSite}...`);
+  hideSettingsModal();
+  
+  try {
+    const response = await fetch(`${API_URL}/sites/${currentSettingsSite}/config`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settings)
+    });
+    
+    const result = await response.json();
+    
+    if (result.success) {
+      showToast(`Settings updated! Rebuilding ${currentSettingsSite}...`);
+      
+      // Rebuild the site
+      await rebuildSite(currentSettingsSite);
+    } else {
+      throw new Error(result.error);
+    }
+  } catch (error) {
+    showToast(`Failed to update settings: ${error.message}`, 'error');
+  }
+}
+
+// Update event listeners
+closeSettings.addEventListener('click', () => hideSettingsModal());
+cancelSettings.addEventListener('click', () => hideSettingsModal());
+settingsForm.addEventListener('submit', handleSaveSettings);
+settingsModal.addEventListener('click', (e) => {
+  if (e.target === settingsModal) hideSettingsModal();
+});
