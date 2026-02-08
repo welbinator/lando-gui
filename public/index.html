@@ -87,12 +87,17 @@
           <small>Path to document root (default: .)</small>
         </div>
 
-        <div class="form-group">
-          <label>
-            <input type="checkbox" id="phpmyadmin" name="phpmyadmin" checked>
-            Enable phpMyAdmin
-          </label>
-          <small>Add phpMyAdmin for database management</small>
+        <div class="form-group toggle-group">
+          <div class="toggle-label">
+            <div>
+              <strong>Enable phpMyAdmin</strong>
+              <small style="display: block; color: var(--secondary); margin-top: 0.25rem;">Add phpMyAdmin for database management</small>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="phpmyadmin" name="phpmyadmin" checked>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
         </div>
 
         <div class="form-actions">
@@ -158,11 +163,14 @@
           </select>
         </div>
 
-        <div class="form-group">
-          <label>
-            <input type="checkbox" id="settingsPhpmyadmin" name="phpmyadmin">
-            Enable phpMyAdmin
-          </label>
+        <div class="form-group toggle-group">
+          <div class="toggle-label">
+            <strong>Enable phpMyAdmin</strong>
+            <label class="toggle-switch">
+              <input type="checkbox" id="settingsPhpmyadmin" name="phpmyadmin">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
         </div>
 
         <p class="info">⚠️ Changes will require a rebuild to take effect.</p>
