@@ -100,7 +100,7 @@ function renderSiteCard(site) {
     <div class="site-header">
       <h3 class="site-name">${site.app}</h3>
       <div style="display: flex; align-items: center; gap: 0.5rem;">
-        <button class="btn-icon" onclick="openSiteSettings('${site.app}')" title="Settings">⚙️</button>
+        <button class="btn-icon" onclick="openSiteSettings('${site.app.replace(/'/g, "\\'")}')" title="Settings">⚙️</button>
         <span class="site-status ${status}">${statusText}</span>
       </div>
     </div>
@@ -325,13 +325,19 @@ function showToast(message, type = 'info') {
 
 // Site Settings Modal Functions
 async function openSiteSettings(siteName) {
+  if (!siteName) {
+    showToast('Error: Site name is missing', 'error');
+    console.error('openSiteSettings called with null/undefined siteName');
+    return;
+  }
+  
   currentSettingsSite = siteName;
   settingsSiteName.textContent = siteName;
   
   // Fetch current site settings
   showToast('Loading site settings...');
   try {
-    const response = await fetch(`${API_URL}/sites/${siteName}/config`);
+    const response = await fetch(`${API_URL}/sites/${encodeURIComponent(siteName)}/config`);
     const result = await response.json();
     
     if (result.success) {
@@ -369,7 +375,7 @@ async function handleSaveSettings(e) {
   hideSettingsModal();
   
   try {
-    const response = await fetch(`${API_URL}/sites/${currentSettingsSite}/config`, {
+    const response = await fetch(`${API_URL}/sites/${encodeURIComponent(currentSettingsSite)}/config`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(settings)
