@@ -87,12 +87,17 @@
           <small>Path to document root (default: .)</small>
         </div>
 
-        <div class="form-group">
-          <label>
-            <input type="checkbox" id="phpmyadmin" name="phpmyadmin" checked>
-            Enable phpMyAdmin
-          </label>
-          <small>Add phpMyAdmin for database management</small>
+        <div class="form-group toggle-group">
+          <div class="toggle-label">
+            <div>
+              <strong>Enable phpMyAdmin</strong>
+              <small style="display: block; color: var(--secondary); margin-top: 0.25rem;">Add phpMyAdmin for database management</small>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="phpmyadmin" name="phpmyadmin" checked>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
         </div>
 
         <div class="form-actions">
@@ -120,6 +125,61 @@
         <button type="button" class="btn btn-secondary" id="cancelDelete">Cancel</button>
         <button type="button" class="btn btn-danger" id="confirmDelete">Delete Forever</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Site Settings Modal -->
+  <div id="settingsModal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>⚙️ Site Settings</h2>
+        <button class="close-btn" id="closeSettings">&times;</button>
+      </div>
+
+      <form id="settingsForm">
+        <h3 id="settingsSiteName"></h3>
+        
+        <div class="form-group">
+          <label for="settingsPhp">PHP Version</label>
+          <select id="settingsPhp" name="php">
+            <option value="8.3">8.3</option>
+            <option value="8.2">8.2</option>
+            <option value="8.1">8.1</option>
+            <option value="8.0">8.0</option>
+            <option value="7.4">7.4</option>
+            <option value="7.3">7.3</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="settingsDatabase">Database</label>
+          <select id="settingsDatabase" name="database">
+            <option value="mysql:8.0">MySQL 8.0</option>
+            <option value="mysql:5.7">MySQL 5.7</option>
+            <option value="mariadb:10.6">MariaDB 10.6</option>
+            <option value="mariadb:10.5">MariaDB 10.5</option>
+            <option value="postgres:14">PostgreSQL 14</option>
+            <option value="postgres:13">PostgreSQL 13</option>
+          </select>
+        </div>
+
+        <div class="form-group toggle-group">
+          <div class="toggle-label">
+            <strong>Enable phpMyAdmin</strong>
+            <label class="toggle-switch">
+              <input type="checkbox" id="settingsPhpmyadmin" name="phpmyadmin">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <p class="info">⚠️ Changes will require a rebuild to take effect.</p>
+
+        <div class="form-actions">
+          <button type="button" class="btn btn-secondary" id="cancelSettings">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save & Rebuild</button>
+        </div>
+      </form>
     </div>
   </div>
 
