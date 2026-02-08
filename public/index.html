@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lando GUI</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🦙 Lando GUI</h1>
+      <div>
+        <button id="settingsBtn" class="btn btn-secondary" style="margin-right: 1rem;">⚙️ Settings</button>
+        <button id="createBtn" class="btn btn-primary">+ Create New Site</button>
+      </div>
+    </header>
+
+    <div id="sitesContainer" class="sites-grid">
+      <!-- Sites will be loaded here -->
+    </div>
+
+    <div id="loading" class="loading hidden">
+      <div class="spinner"></div>
+      <p>Loading...</p>
+    </div>
+  </div>
+
+  <!-- Create Site Modal -->
+  <div id="createModal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Create New Lando Site</h2>
+        <button class="close-btn" id="closeModal">&times;</button>
+      </div>
+      <form id="createForm">
+        <div class="form-group">
+          <label for="siteName">Site Name *</label>
+          <input type="text" id="siteName" name="name" required 
+                 pattern="[a-z0-9-]+" 
+                 title="Lowercase letters, numbers, and hyphens only"
+                 placeholder="my-awesome-site">
+          <small>Lowercase letters, numbers, and hyphens only</small>
+        </div>
+
+        <div class="form-group">
+          <label for="recipe">Recipe *</label>
+          <select id="recipe" name="recipe" required>
+            <option value="wordpress">WordPress</option>
+            <option value="drupal9">Drupal 9</option>
+            <option value="drupal10">Drupal 10</option>
+            <option value="laravel">Laravel</option>
+            <option value="lamp">LAMP</option>
+            <option value="lemp">LEMP</option>
+            <option value="mean">MEAN</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="php">PHP Version</label>
+          <select id="php" name="php">
+            <option value="8.3">8.3</option>
+            <option value="8.2">8.2</option>
+            <option value="8.1" selected>8.1</option>
+            <option value="8.0">8.0</option>
+            <option value="7.4">7.4</option>
+            <option value="7.3">7.3</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="database">Database</label>
+          <select id="database" name="database">
+            <option value="">Default (MySQL 8.0)</option>
+            <option value="mysql:8.0" selected>MySQL 8.0</option>
+            <option value="mysql:5.7">MySQL 5.7</option>
+            <option value="mariadb:10.6">MariaDB 10.6</option>
+            <option value="mariadb:10.5">MariaDB 10.5</option>
+            <option value="postgres:14">PostgreSQL 14</option>
+            <option value="postgres:13">PostgreSQL 13</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="webroot">Webroot</label>
+          <input type="text" id="webroot" name="webroot" value="." placeholder=".">
+          <small>Path to document root (default: .)</small>
+        </div>
+
+        <div class="form-actions">
+          <button type="button" class="btn btn-secondary" id="cancelBtn">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create Site</button>
+        </div>
+      </form>
+
+      <div id="createProgress" class="progress hidden">
+        <div class="progress-bar"></div>
+        <p id="progressText">Creating site...</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirm Delete Modal -->
+  <div id="deleteModal" class="modal hidden">
+    <div class="modal-content modal-small">
+      <div class="modal-header">
+        <h2>⚠️ Confirm Delete</h2>
+      </div>
+      <p>Are you sure you want to destroy <strong id="deleteSiteName"></strong>?</p>
+      <p class="warning">This will delete all files, databases, and Docker volumes. This cannot be undone.</p>
+      <div class="form-actions">
+        <button type="button" class="btn btn-secondary" id="cancelDelete">Cancel</button>
+        <button type="button" class="btn btn-danger" id="confirmDelete">Delete Forever</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    // Check if setup is complete
+    fetch('http://localhost:3000/api/config')
+      .then(r => r.json())
+      .then(data => {
+        if (data.success && !data.config.setupComplete) {
+          window.location.href = '/setup.html';
+        }
+      });
+  </script>
+</body>
+</html>

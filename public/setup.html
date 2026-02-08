@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Setup - Lando GUI</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .setup-container {
+      max-width: 700px;
+      margin: 4rem auto;
+      padding: 3rem;
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+    }
+    .setup-header {
+      text-align: center;
+      margin-bottom: 3rem;
+    }
+    .setup-header h1 {
+      margin-bottom: 0.5rem;
+    }
+    .setup-steps {
+      margin-bottom: 2rem;
+    }
+    .setup-step {
+      margin-bottom: 2rem;
+      padding: 1.5rem;
+      background: #f8f9fa;
+      border-radius: 8px;
+    }
+    .setup-step h3 {
+      margin-bottom: 1rem;
+      color: var(--dark);
+    }
+    .detected {
+      background: #d4edda;
+      padding: 0.75rem;
+      border-radius: 6px;
+      margin-bottom: 1rem;
+      color: #155724;
+    }
+    .status-icon {
+      display: inline-block;
+      margin-right: 0.5rem;
+    }
+    .valid { color: var(--success); }
+    .invalid { color: var(--danger); }
+  </style>
+</head>
+<body>
+  <div class="setup-container">
+    <div class="setup-header">
+      <h1>🦙 Welcome to Lando GUI!</h1>
+      <p>Let's get you set up. We'll try to detect your settings automatically.</p>
+    </div>
+
+    <div class="setup-steps">
+      <div class="setup-step">
+        <h3>1. Lando Installation</h3>
+        <div id="landoDetected" class="detected hidden">
+          ✅ Found Lando at: <code id="detectedLandoPath"></code>
+        </div>
+        <div class="form-group">
+          <label for="landoPath">Lando Path</label>
+          <input type="text" id="landoPath" placeholder="/usr/local/bin/lando">
+          <small>Leave as "lando" to use PATH, or specify full path</small>
+        </div>
+        <div id="landoStatus"></div>
+      </div>
+
+      <div class="setup-step">
+        <h3>2. Sites Directory</h3>
+        <div id="sitesDetected" class="detected hidden">
+          ✅ Found sites at: <code id="detectedSitesDir"></code>
+        </div>
+        <div class="form-group">
+          <label for="sitesDirectory">Sites Directory</label>
+          <input type="text" id="sitesDirectory" placeholder="~/lando">
+          <small>Where do you keep your Lando sites?</small>
+        </div>
+        <div id="sitesStatus"></div>
+      </div>
+
+      <div class="setup-step">
+        <h3>3. WordPress Defaults (optional)</h3>
+        <div class="form-group">
+          <label for="wpUser">Default Admin Username</label>
+          <input type="text" id="wpUser" value="admin">
+        </div>
+        <div class="form-group">
+          <label for="wpPassword">Default Admin Password</label>
+          <input type="text" id="wpPassword" value="admin">
+        </div>
+        <div class="form-group">
+          <label for="wpEmail">Default Admin Email</label>
+          <input type="email" id="wpEmail" value="admin@example.com">
+        </div>
+        <small>These will be used when creating new WordPress sites</small>
+      </div>
+    </div>
+
+    <div class="form-actions">
+      <button class="btn btn-secondary" onclick="detectSettings()">Re-detect</button>
+      <button class="btn btn-primary" onclick="saveSetup()">Complete Setup</button>
+    </div>
+  </div>
+
+  <script>
+    const API_URL = 'http://localhost:3000/api';
+
+    async function detectSettings() {
+      try {
+        const response = await fetch(`${API_URL}/config/detect`);
+        const data = await response.json();
+
+        if (data.success) {
+          const { detected } = data;
+
+          // Lando
+          document.getElementById('landoPath').value = detected.landoPath;
+          if (detected.landoValid) {
+            document.getElementById('landoDetected').classList.remove('hidden');
+            document.getElementById('detectedLandoPath').textContent = detected.landoPath;
+            document.getElementById('landoStatus').innerHTML = '<span class="valid">✓ Lando is working!</span>';
+          } else {
+            document.getElementById('landoStatus').innerHTML = '<span class="invalid">✗ Could not verify Lando. Please check the path.</span>';
+          }
+
+          // Sites directory
+          document.getElementById('sitesDirectory').value = detected.sitesDirectory;
+          if (detected.sitesDirectoryValid) {
+            document.getElementById('sitesDetected').classList.remove('hidden');
+            document.getElementById('detectedSitesDir').textContent = detected.sitesDirectory;
+            document.getElementById('sitesStatus').innerHTML = '<span class="valid">✓ Directory exists</span>';
+          } else {
+            document.getElementById('sitesStatus').innerHTML = '<span class="invalid">✗ Directory not found. We\'ll create it.</span>';
+          }
+        }
+      } catch (error) {
+        alert('Failed to detect settings: ' + error.message);
+      }
+    }
+
+    async function saveSetup() {
+      const config = {
+        landoPath: document.getElementById('landoPath').value,
+        sitesDirectory: document.getElementById('sitesDirectory').value,
+        wordpress: {
+          adminUser: document.getElementById('wpUser').value,
+          adminPassword: document.getElementById('wpPassword').value,
+          adminEmail: document.getElementById('wpEmail').value
+        },
+        setupComplete: true
+      };
+
+      try {
+        const response = await fetch(`${API_URL}/config`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(config)
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          alert('Setup complete! Redirecting to dashboard...');
+          window.location.href = '/';
+        } else {
+          alert('Failed to save config: ' + data.error);
+        }
+      } catch (error) {
+        alert('Failed to save config: ' + error.message);
+      }
+    }
+
+    // Auto-detect on load
+    detectSettings();
+  </script>
+</body>
+</html>
