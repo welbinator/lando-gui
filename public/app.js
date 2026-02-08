@@ -331,19 +331,24 @@ function showToast(message, type = 'info') {
 
 // Site Settings Modal Functions
 async function openSiteSettings(siteName) {
-  if (!siteName) {
-    showToast('Error: Site name is missing', 'error');
-    console.error('openSiteSettings called with null/undefined siteName');
+  console.log('openSiteSettings called with:', siteName);
+  
+  if (!siteName || siteName === 'null' || siteName === 'undefined') {
+    showToast('Error: Invalid site name', 'error');
+    console.error('openSiteSettings called with invalid siteName:', siteName);
     return;
   }
   
   currentSettingsSite = siteName;
+  console.log('currentSettingsSite set to:', currentSettingsSite);
   settingsSiteName.textContent = siteName;
   
   // Fetch current site settings
   showToast('Loading site settings...');
   try {
-    const response = await fetch(`${API_URL}/sites/${encodeURIComponent(siteName)}/config`);
+    const url = `${API_URL}/sites/${encodeURIComponent(siteName)}/config`;
+    console.log('Fetching config from:', url);
+    const response = await fetch(url);
     const result = await response.json();
     
     if (result.success) {
@@ -369,7 +374,13 @@ function hideSettingsModal() {
 async function handleSaveSettings(e) {
   e.preventDefault();
   
-  if (!currentSettingsSite) return;
+  console.log('handleSaveSettings - currentSettingsSite:', currentSettingsSite);
+  
+  if (!currentSettingsSite || currentSettingsSite === 'null') {
+    showToast('Error: No site selected', 'error');
+    console.error('currentSettingsSite is null/invalid:', currentSettingsSite);
+    return;
+  }
   
   const settings = {
     php: document.getElementById('settingsPhp').value,
@@ -377,11 +388,17 @@ async function handleSaveSettings(e) {
     phpmyadmin: document.getElementById('settingsPhpmyadmin').checked
   };
   
-  showToast(`Updating ${currentSettingsSite}...`);
+  console.log('Saving settings:', settings, 'for site:', currentSettingsSite);
+  
+  const siteToUpdate = currentSettingsSite; // Store before hiding modal
+  
+  showToast(`Updating ${siteToUpdate}...`);
   hideSettingsModal();
   
   try {
-    const response = await fetch(`${API_URL}/sites/${encodeURIComponent(currentSettingsSite)}/config`, {
+    const url = `${API_URL}/sites/${encodeURIComponent(siteToUpdate)}/config`;
+    console.log('PUT to:', url);
+    const response = await fetch(url, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(settings)
@@ -390,10 +407,10 @@ async function handleSaveSettings(e) {
     const result = await response.json();
     
     if (result.success) {
-      showToast(`Settings updated! Rebuilding ${currentSettingsSite}...`);
+      showToast(`Settings updated! Rebuilding ${siteToUpdate}...`);
       
       // Rebuild the site
-      await rebuildSite(currentSettingsSite);
+      await rebuildSite(siteToUpdate);
     } else {
       throw new Error(result.error);
     }
