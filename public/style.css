@@ -80,6 +80,19 @@ h1 {
   color: white;
 }
 
+.btn-info {
+  background: #17a2b8;
+  color: white;
+  text-decoration: none;
+  display: inline-block;
+}
+
+.btn-info:hover {
+  background: #138496;
+  text-decoration: none;
+  color: white;
+}
+
 .btn-sm {
   padding: 0.5rem 1rem;
   font-size: 0.875rem;
