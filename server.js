@@ -53,22 +53,42 @@ async function getLandoSites() {
       const services = JSON.parse(result.stdout);
       
       // Group by directory (not app name, since Docker normalizes it)
-      services.forEach(service => {
+      for (const service of services) {
         if (service.app && service.app !== '_global_' && service.src && service.src[0]) {
           const dir = service.src[0].replace('/.lando.yml', '');
           
           if (!sitesMap.has(dir)) {
-            sitesMap.set(dir, {
+            const siteData = {
               app: service.app,
               running: service.running ? 'yes' : 'no',
               dir: dir,
               urls: service.urls || [`https://${service.app}.lndo.site`],
               recipe: 'Unknown',
               _dockerName: service.app // Keep for reference
-            });
+            };
+            
+            // Get full info to check for phpMyAdmin URLs
+            if (service.running) {
+              const infoResult = await runLandoCommand('lando info --format json', dir);
+              if (infoResult.success) {
+                try {
+                  const info = JSON.parse(infoResult.stdout);
+                  
+                  // Look for phpMyAdmin service
+                  if (Array.isArray(info)) {
+                    const pmaService = info.find(s => s.type === 'phpmyadmin');
+                    if (pmaService && pmaService.urls && pmaService.urls.length > 0) {
+                      siteData.phpmyadminUrl = pmaService.urls[0];
+                    }
+                  }
+                } catch (e) {}
+              }
+            }
+            
+            sitesMap.set(dir, siteData);
           }
         }
-      });
+      }
     } catch (e) {
       // Continue to filesystem scan
     }
@@ -88,7 +108,7 @@ async function getLandoSites() {
         // Read the .lando.yml to get the actual site name
         let siteName = dir; // fallback to folder name
         let recipe = 'Unknown';
-        let phpmyadminUrl = null;
+        let phpmyadminEnabled = false;
         
         try {
           const content = await fs.readFile(landoYmlPath, 'utf-8');
@@ -104,9 +124,11 @@ async function getLandoSites() {
           // Check for phpMyAdmin service
           const hasPhpMyAdmin = content.includes('type: phpmyadmin') || content.includes('type:phpmyadmin');
           
-          if (hasPhpMyAdmin) {
-            // phpMyAdmin URL is typically on a subdomain
-            phpmyadminUrl = `http://${siteName}.lndo.site:8080`;
+          // Only set URL if running (will be fetched from lando info above)
+          // For stopped sites, just mark that it has phpMyAdmin
+          if (hasPhpMyAdmin && !sitesMap.has(fullPath)) {
+            // Will be populated when site starts
+            phpmyadminEnabled = true;
           }
         } catch (e) {}
         
@@ -117,7 +139,7 @@ async function getLandoSites() {
           site.app = siteName; // Use name from .lando.yml (with dashes)
           site.recipe = recipe;
           site.urls = [`https://${siteName}.lndo.site`]; // Correct URL with dashes
-          if (phpmyadminUrl) site.phpmyadminUrl = phpmyadminUrl;
+          // phpMyAdmin URL already set from lando info if running
         } else {
           // Not running, add as stopped
           const siteData = {
@@ -127,7 +149,10 @@ async function getLandoSites() {
             urls: [`https://${siteName}.lndo.site`],
             recipe: recipe
           };
-          if (phpmyadminUrl) siteData.phpmyadminUrl = phpmyadminUrl;
+          // Don't set phpMyAdmin URL for stopped sites (only when running)
+          if (phpmyadminEnabled) {
+            siteData.hasPhpMyAdmin = true;
+          }
           sitesMap.set(fullPath, siteData);
         }
       } catch (e) {

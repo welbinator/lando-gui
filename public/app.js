@@ -88,6 +88,7 @@ function renderSiteCard(site) {
   
   const urls = site.urls || [];
   const mainUrl = urls[0] || `https://${site.app}.lndo.site`;
+  const isRunning = status === 'running';
   
   card.innerHTML = `
     <div class="site-header">
@@ -98,7 +99,7 @@ function renderSiteCard(site) {
       <a href="${mainUrl}" target="_blank" class="site-url">${mainUrl}</a>
       <div><strong>Recipe:</strong> ${site.recipe || 'Unknown'}</div>
       <div><strong>Location:</strong> ${site.dir || 'Unknown'}</div>
-      ${site.phpmyadminUrl ? `<a href="${site.phpmyadminUrl}" target="_blank" class="btn btn-info btn-sm" style="margin-top: 0.5rem;">📊 phpMyAdmin</a>` : ''}
+      ${isRunning && site.phpmyadminUrl ? `<a href="${site.phpmyadminUrl}" target="_blank" class="btn btn-info btn-sm" style="margin-top: 0.5rem;">📊 phpMyAdmin</a>` : ''}
     </div>
     <div class="site-actions">
       ${status === 'stopped' ? 
