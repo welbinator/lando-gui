@@ -40,12 +40,37 @@ function setupEventListeners() {
   cancelDelete.addEventListener('click', () => hideDeleteModal());
   confirmDelete.addEventListener('click', handleConfirmDelete);
   
+  // Progress modal close button
+  const closeProgress = document.getElementById('closeProgress');
+  closeProgress.addEventListener('click', () => {
+    // Get the current operation
+    for (const [opId, opData] of activeOperations.entries()) {
+      if (!opData.minimized) {
+        minimizeOperation(opId);
+        break;
+      }
+    }
+  });
+  
   // Close modal on outside click
   createModal.addEventListener('click', (e) => {
     if (e.target === createModal) hideModal();
   });
   deleteModal.addEventListener('click', (e) => {
     if (e.target === deleteModal) hideDeleteModal();
+  });
+  
+  const progressModal = document.getElementById('progressModal');
+  progressModal.addEventListener('click', (e) => {
+    if (e.target === progressModal) {
+      // Minimize instead of close
+      for (const [opId, opData] of activeOperations.entries()) {
+        if (!opData.minimized) {
+          minimizeOperation(opId);
+          break;
+        }
+      }
+    }
   });
 }
 
@@ -67,6 +92,50 @@ function hideDeleteModal() {
 
 // Operation Progress - Minimized Cards
 function showOperationProgress(operation, siteName, operationId = null) {
+  // Show the progress modal
+  const progressModal = document.getElementById('progressModal');
+  const progressTitle = document.getElementById('progressTitle');
+  const terminalOutput = document.getElementById('terminalOutput');
+  
+  const operationLabels = {
+    creating: 'Creating',
+    starting: 'Starting',
+    stopping: 'Stopping',
+    restarting: 'Restarting',
+    rebuilding: 'Rebuilding',
+    migrating: 'Migrating',
+    destroying: 'Destroying',
+    updating: 'Updating'
+  };
+  
+  const label = operationLabels[operation] || operation;
+  progressTitle.textContent = `${label} ${siteName}`;
+  terminalOutput.innerHTML = '<div class="log-line">Starting operation...</div>';
+  progressModal.classList.remove('hidden');
+  
+  // Track this operation
+  const opData = {
+    operation,
+    siteName,
+    operationId,
+    pollInterval: null,
+    minimized: false
+  };
+  activeOperations.set(operationId, opData);
+  
+  // Start polling for logs if we have an operation ID
+  if (operationId) {
+    startLogPolling(operationId);
+  }
+}
+
+function minimizeOperation(operationId) {
+  const opData = activeOperations.get(operationId);
+  if (!opData || opData.minimized) return;
+  
+  // Hide the modal
+  document.getElementById('progressModal').classList.add('hidden');
+  
   // Create operations container if it doesn't exist
   let container = document.getElementById('operationsContainer');
   if (!container) {
@@ -92,32 +161,55 @@ function showOperationProgress(operation, siteName, operationId = null) {
     updating: 'Updating'
   };
   
-  const label = operationLabels[operation] || operation;
+  const label = operationLabels[opData.operation] || opData.operation;
   
   card.innerHTML = `
     <div class="operation-card-spinner"></div>
     <div class="operation-card-content">
-      <div class="operation-card-title">${siteName}</div>
+      <div class="operation-card-title">${opData.siteName}</div>
       <div class="operation-card-status">${label}...</div>
     </div>
   `;
   
+  // Click to re-open modal
+  card.addEventListener('click', () => {
+    restoreOperation(operationId);
+  });
+  
   container.appendChild(card);
+  opData.card = card;
+  opData.minimized = true;
+}
+
+function restoreOperation(operationId) {
+  const opData = activeOperations.get(operationId);
+  if (!opData) return;
   
-  // Track this operation
-  const opData = {
-    operation,
-    siteName,
-    operationId,
-    pollInterval: null,
-    card
-  };
-  activeOperations.set(operationId, opData);
-  
-  // Start polling for logs if we have an operation ID
-  if (operationId) {
-    startLogPolling(operationId);
+  // Remove the minimized card
+  if (opData.card) {
+    opData.card.remove();
   }
+  
+  // Show the modal again
+  const progressModal = document.getElementById('progressModal');
+  const progressTitle = document.getElementById('progressTitle');
+  
+  const operationLabels = {
+    creating: 'Creating',
+    starting: 'Starting',
+    stopping: 'Stopping',
+    restarting: 'Restarting',
+    rebuilding: 'Rebuilding',
+    migrating: 'Migrating',
+    destroying: 'Destroying',
+    updating: 'Updating'
+  };
+  
+  const label = operationLabels[opData.operation] || opData.operation;
+  progressTitle.textContent = `${label} ${opData.siteName}`;
+  progressModal.classList.remove('hidden');
+  
+  opData.minimized = false;
 }
 
 function startLogPolling(operationId) {
@@ -130,37 +222,63 @@ function startLogPolling(operationId) {
       const data = await response.json();
       
       if (data.success && data.logs) {
-        // Update card with latest log line (optional - could show last line)
-        // For now, just check completion
+        // Update terminal output if modal is visible
+        if (!opData.minimized) {
+          const terminalOutput = document.getElementById('terminalOutput');
+          terminalOutput.innerHTML = data.logs
+            .map(line => `<div class="log-line">${escapeHtml(line)}</div>`)
+            .join('');
+          // Auto-scroll to bottom
+          terminalOutput.scrollTop = terminalOutput.scrollHeight;
+        }
         
         // Check if operation is complete
         if (data.completed) {
           clearInterval(opData.pollInterval);
           
-          // Update card to show completion
-          const card = opData.card;
-          const statusEl = card.querySelector('.operation-card-status');
-          
           if (data.operationSuccess) {
-            statusEl.textContent = 'Complete ✓';
-            card.classList.add('success');
             showToast(`${opData.siteName} ${opData.operation} completed`, 'success');
-          } else {
-            statusEl.textContent = 'Failed ✗';
-            card.classList.add('error');
-            showToast(`${opData.siteName} ${opData.operation} failed: ${data.error || 'Unknown error'}`, 'error');
-          }
-          
-          // Remove spinner
-          const spinner = card.querySelector('.operation-card-spinner');
-          if (spinner) spinner.remove();
-          
-          // Remove card after 3 seconds
-          setTimeout(() => {
-            card.remove();
-            activeOperations.delete(operationId);
+            
+            // If minimized, update card
+            if (opData.minimized && opData.card) {
+              const statusEl = opData.card.querySelector('.operation-card-status');
+              statusEl.textContent = 'Complete ✓';
+              opData.card.classList.add('success');
+              
+              // Remove spinner
+              const spinner = opData.card.querySelector('.operation-card-spinner');
+              if (spinner) spinner.remove();
+              
+              // Remove card after 3 seconds
+              setTimeout(() => {
+                opData.card.remove();
+                activeOperations.delete(operationId);
+              }, 3000);
+            } else {
+              // Close modal and show success
+              document.getElementById('progressModal').classList.add('hidden');
+              activeOperations.delete(operationId);
+            }
+            
             loadSites(); // Refresh sites list
-          }, 3000);
+          } else {
+            showToast(`${opData.siteName} ${opData.operation} failed: ${data.error || 'Unknown error'}`, 'error');
+            
+            // If minimized, update card
+            if (opData.minimized && opData.card) {
+              const statusEl = opData.card.querySelector('.operation-card-status');
+              statusEl.textContent = 'Failed ✗';
+              opData.card.classList.add('error');
+              
+              // Remove spinner
+              const spinner = opData.card.querySelector('.operation-card-spinner');
+              if (spinner) spinner.remove();
+              
+              // Keep card visible so user can click to see logs
+            } else {
+              // Keep modal open so user can see error logs
+            }
+          }
         }
       }
     } catch (error) {
@@ -171,6 +289,12 @@ function startLogPolling(operationId) {
   // Poll every 500ms
   opData.pollInterval = setInterval(pollLogs, 500);
   pollLogs(); // Call immediately
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
 }
 
 async function loadSites() {
@@ -251,11 +375,20 @@ function showEmptyState() {
 async function handleCreateSite(e) {
   e.preventDefault();
   
-  }
-  
   const formData = new FormData(createForm);
+  
+  // Sanitize site name to match Lando conventions (lowercase, hyphens)
+  const rawName = formData.get('name');
+  const sanitizedName = rawName
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, '-')           // spaces to hyphens
+    .replace(/[^a-z0-9-]/g, '')     // remove non-alphanumeric except hyphens
+    .replace(/-+/g, '-')            // collapse multiple hyphens
+    .replace(/^-|-$/g, '');         // trim leading/trailing hyphens
+  
   const data = {
-    name: formData.get('name'),
+    name: sanitizedName,
     recipe: formData.get('recipe'),
     php: formData.get('php'),
     database: formData.get('database') || undefined,
@@ -286,8 +419,6 @@ async function handleCreateSite(e) {
 }
 
 async function startSite(name) {
-  }
-  
   try {
     const response = await fetch(`${API_URL}/sites/${name}/start`, {
       method: 'POST'
@@ -316,8 +447,6 @@ async function startSite(name) {
 }
 
 async function stopSite(name) {
-  }
-  
   try {
     const response = await fetch(`${API_URL}/sites/${name}/stop`, {
       method: 'POST'
@@ -336,8 +465,6 @@ async function stopSite(name) {
 }
 
 async function restartSite(name) {
-  }
-  
   try {
     const response = await fetch(`${API_URL}/sites/${name}/restart`, {
       method: 'POST'
@@ -356,8 +483,6 @@ async function restartSite(name) {
 }
 
 async function rebuildSite(name) {
-  }
-  
   try {
     const response = await fetch(`${API_URL}/sites/${name}/rebuild`, {
       method: 'POST'
@@ -382,9 +507,7 @@ function confirmDeleteSite(name) {
 }
 
 async function handleConfirmDelete() {
-    if (!currentDeleteSite) return;
-  
-  }
+  if (!currentDeleteSite) return;
   
   const name = currentDeleteSite;
   hideDeleteModal();
@@ -474,8 +597,6 @@ async function handleSaveSettings(e) {
     showToast('Error: No site selected', 'error');
     console.error('currentSettingsSite is null/invalid:', currentSettingsSite);
     return;
-  }
-  
   }
   
   const settings = {
