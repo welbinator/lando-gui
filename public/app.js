@@ -345,6 +345,7 @@ function renderSiteCard(site) {
     </div>
     <div class="site-info">
       <a href="${mainUrl}" target="_blank" class="site-url">${mainUrl}</a>
+      ${isRunning ? `<a href="${mainUrl}/wp-admin" target="_blank" class="site-url" style="font-size: 0.9rem; opacity: 0.8;">${mainUrl}/wp-admin</a>` : ''}
       <div><strong>Recipe:</strong> ${site.recipe || 'Unknown'}</div>
       <div><strong>Location:</strong> ${site.dir || 'Unknown'}</div>
       ${isRunning && site.phpmyadminUrl ? `<a href="${site.phpmyadminUrl}" target="_blank" class="btn btn-info btn-sm" style="margin-top: 0.5rem;">📊 phpMyAdmin</a>` : ''}

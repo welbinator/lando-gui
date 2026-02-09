@@ -379,14 +379,19 @@ config:
             siteDir
           );
           
+          // Get WordPress credentials from config
+          const wpUser = APP_CONFIG.wordpress?.adminUser || 'admin';
+          const wpPass = APP_CONFIG.wordpress?.adminPassword || 'admin';
+          const wpEmail = APP_CONFIG.wordpress?.adminEmail || 'admin@example.com';
+          
           log.lines.push('Installing WordPress...');
           await runLandoCommand(
-            `lando wp core install --url=https://${name}.lndo.site --title="${name}'s Site" --admin_user=james --admin_password=pepsidude --admin_email=james.welbes@gmail.com`,
+            `lando wp core install --url=https://${name}.lndo.site --title="${name}'s Site" --admin_user=${wpUser} --admin_password=${wpPass} --admin_email=${wpEmail}`,
             siteDir
           );
           
           log.lines.push(`Site ready at: https://${name}.lndo.site`);
-          log.lines.push('WordPress login: james / pepsidude');
+          log.lines.push(`WordPress login: ${wpUser} / ${wpPass}`);
         }
 
         log.lines.push('✅ Site created successfully!');
