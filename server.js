@@ -47,7 +47,7 @@ async function runLandoCommand(command, cwd = null) {
 
 // Helper: Execute Lando command with live output streaming
 async function runLandoCommandWithLogs(operationId, command, cwd = null) {
-  return new Promise((resolve, reject) => {
+        return new Promise((resolve, reject) => {
     // Initialize log storage for this operation
     operationLogs.set(operationId, {
       lines: [],
@@ -59,16 +59,32 @@ async function runLandoCommandWithLogs(operationId, command, cwd = null) {
     const landoPath = APP_CONFIG.landoPath === 'lando' ? 'lando' : APP_CONFIG.landoPath;
     const commandArray = command.split(' ');
     commandArray[0] = landoPath;
+    
+    // Wrap command with script to get unbuffered output
+    const wrappedCommand = `script -qec "${commandArray.join(' ')}" /dev/null`;
 
     const options = {
       cwd: cwd || process.cwd(),
-      shell: true
+      shell: true,
+      env: { 
+        ...process.env, 
+        LANDO_NO_COLOR: '1',
+        PYTHONUNBUFFERED: '1',
+        NODE_NO_WARNINGS: '1'
+      },
+      stdio: ['ignore', 'pipe', 'pipe']
     };
 
-    const child = spawn(commandArray.join(' '), [], options);
+    console.log(`[${operationId}] Spawning command: ${wrappedCommand}`);
+    const child = spawn(wrappedCommand, [], options);
+
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
 
     child.stdout.on('data', (data) => {
-      const lines = data.toString().split('\n').filter(line => line.trim());
+      const text = data.toString();
+      console.log(`[${operationId}] stdout:`, text);
+      const lines = text.split('\n').filter(line => line.trim());
       const log = operationLogs.get(operationId);
       if (log) {
         log.lines.push(...lines);
@@ -76,7 +92,9 @@ async function runLandoCommandWithLogs(operationId, command, cwd = null) {
     });
 
     child.stderr.on('data', (data) => {
-      const lines = data.toString().split('\n').filter(line => line.trim());
+      const text = data.toString();
+      console.log(`[${operationId}] stderr:`, text);
+      const lines = text.split('\n').filter(line => line.trim());
       const log = operationLogs.get(operationId);
       if (log) {
         log.lines.push(...lines);
@@ -84,6 +102,7 @@ async function runLandoCommandWithLogs(operationId, command, cwd = null) {
     });
 
     child.on('close', (code) => {
+      console.log(`[${operationId}] Process closed with code ${code}`);
       const log = operationLogs.get(operationId);
       if (log) {
         log.completed = true;
@@ -101,6 +120,7 @@ async function runLandoCommandWithLogs(operationId, command, cwd = null) {
     });
 
     child.on('error', (error) => {
+      console.error(`[${operationId}] Process error:`, error);
       const log = operationLogs.get(operationId);
       if (log) {
         log.completed = true;
