@@ -139,6 +139,7 @@ function showOperationProgress(operation, siteName, operationId = null) {
 
 function startLogPolling(operationId) {
   let lastLineCount = 0;
+  const MAX_LINES = 200; // Keep only last 200 lines in DOM
   
   const pollLogs = async () => {
     try {
@@ -157,6 +158,11 @@ function startLogPolling(operationId) {
             terminalLines.appendChild(lineDiv);
           });
           lastLineCount = data.logs.length;
+          
+          // Remove old lines if we exceed MAX_LINES
+          while (terminalLines.children.length > MAX_LINES) {
+            terminalLines.removeChild(terminalLines.firstChild);
+          }
           
           // Auto-scroll to bottom
           const terminal = document.getElementById('terminalOutput');
