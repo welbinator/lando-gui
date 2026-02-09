@@ -77,6 +77,7 @@ function showOperationProgress(operation, siteName, operationId = null) {
     overlay.className = 'operation-overlay';
     overlay.innerHTML = `
       <div class="operation-modal">
+        <button class="close-operation-btn" onclick="closeOperationModal()" title="Close (operation continues in background)">&times;</button>
         <div class="operation-spinner"></div>
         <h3 id="operationTitle"></h3>
         <p id="operationMessage"></p>
@@ -182,17 +183,38 @@ function startLogPolling(operationId) {
           clearInterval(activeOperation.pollInterval);
           activeOperation.pollInterval = null;
           
-          // Wait a moment to show final output, then close
-          setTimeout(() => {
+          const overlay = document.getElementById('operationOverlay');
+          const modalIsVisible = overlay && !overlay.classList.contains('hidden');
+          
+          if (modalIsVisible) {
+            // Modal is visible - wait a moment to show final output, then close
+            setTimeout(() => {
+              hideOperationProgress();
+              loadSites(); // Refresh sites list
+              
+              if (data.operationSuccess) {
+                showToast('Operation completed successfully', 'success');
+              } else {
+                showToast(`Operation failed: ${data.error || 'Unknown error'}`, 'error');
+              }
+            }, 1500);
+          } else {
+            // Modal was closed - just show toast notification
             hideOperationProgress();
             loadSites(); // Refresh sites list
             
+            const { operation, siteName } = activeOperation;
+            const opName = operation === 'creating' ? 'Creation' : 
+                          operation === 'updating' ? 'Update' :
+                          operation === 'migrating' ? 'Migration' :
+                          operation.charAt(0).toUpperCase() + operation.slice(1);
+            
             if (data.operationSuccess) {
-              showToast('Operation completed successfully', 'success');
+              showToast(`${opName} of ${siteName} completed successfully`, 'success');
             } else {
-              showToast(`Operation failed: ${data.error || 'Unknown error'}`, 'error');
+              showToast(`${opName} of ${siteName} failed: ${data.error || 'Unknown error'}`, 'error');
             }
-          }, 1500);
+          }
         }
       }
     } catch (error) {
@@ -220,6 +242,15 @@ function hideOperationProgress() {
   
   // Re-enable all action buttons
   enableAllActions();
+}
+
+function closeOperationModal() {
+  const overlay = document.getElementById('operationOverlay');
+  if (overlay) {
+    overlay.classList.add('hidden');
+  }
+  // Don't stop polling - let it continue in background
+  // Don't clear activeOperation - it's still running
 }
 
 function disableAllActions() {
