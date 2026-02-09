@@ -380,9 +380,9 @@ config:
           );
           
           // Get WordPress credentials from config
-          const wpUser = config.wordpress?.adminUser || 'admin';
-          const wpPass = config.wordpress?.adminPassword || 'admin';
-          const wpEmail = config.wordpress?.adminEmail || 'admin@example.com';
+          const wpUser = APP_CONFIG.wordpress?.adminUser || 'admin';
+          const wpPass = APP_CONFIG.wordpress?.adminPassword || 'admin';
+          const wpEmail = APP_CONFIG.wordpress?.adminEmail || 'admin@example.com';
           
           log.lines.push('Installing WordPress...');
           await runLandoCommand(
