@@ -66,8 +66,8 @@ function hideDeleteModal() {
 }
 
 // Operation Progress Modal
-function showOperationProgress(operation, siteName) {
-  activeOperation = { operation, siteName };
+function showOperationProgress(operation, siteName, operationId = null) {
+  activeOperation = { operation, siteName, operationId, pollInterval: null };
   
   // Create overlay if it doesn't exist
   let overlay = document.getElementById('operationOverlay');
@@ -80,6 +80,9 @@ function showOperationProgress(operation, siteName) {
         <div class="operation-spinner"></div>
         <h3 id="operationTitle"></h3>
         <p id="operationMessage"></p>
+        <div id="terminalOutput" class="terminal-output">
+          <div id="terminalLines"></div>
+        </div>
       </div>
     `;
     document.body.appendChild(overlay);
@@ -87,6 +90,10 @@ function showOperationProgress(operation, siteName) {
   
   const title = document.getElementById('operationTitle');
   const message = document.getElementById('operationMessage');
+  const terminalLines = document.getElementById('terminalLines');
+  
+  // Clear previous logs
+  terminalLines.innerHTML = '';
   
   const messages = {
     starting: {
@@ -123,6 +130,65 @@ function showOperationProgress(operation, siteName) {
   
   // Disable all action buttons
   disableAllActions();
+  
+  // Start polling for logs if we have an operation ID
+  if (operationId) {
+    startLogPolling(operationId);
+  }
+}
+
+function startLogPolling(operationId) {
+  let lastLineCount = 0;
+  
+  const pollLogs = async () => {
+    try {
+      const response = await fetch(`${API_URL}/operations/${operationId}/logs`);
+      const data = await response.json();
+      
+      if (data.success && data.logs) {
+        const terminalLines = document.getElementById('terminalLines');
+        
+        // Only append new lines
+        if (data.logs.length > lastLineCount) {
+          const newLines = data.logs.slice(lastLineCount);
+          newLines.forEach(line => {
+            const lineDiv = document.createElement('div');
+            lineDiv.textContent = line;
+            terminalLines.appendChild(lineDiv);
+          });
+          lastLineCount = data.logs.length;
+          
+          // Auto-scroll to bottom
+          const terminal = document.getElementById('terminalOutput');
+          terminal.scrollTop = terminal.scrollHeight;
+        }
+        
+        // Check if operation is complete
+        if (data.completed) {
+          clearInterval(activeOperation.pollInterval);
+          activeOperation.pollInterval = null;
+          
+          // Wait a moment to show final output, then close
+          setTimeout(() => {
+            hideOperationProgress();
+            loadSites(); // Refresh sites list
+            
+            if (data.operationSuccess) {
+              showToast('Operation completed successfully', 'success');
+            } else {
+              showToast(`Operation failed: ${data.error || 'Unknown error'}`, 'error');
+            }
+          }, 1500);
+        }
+      }
+    } catch (error) {
+      console.error('Error polling logs:', error);
+    }
+  };
+  
+  // Poll every 500ms
+  activeOperation.pollInterval = setInterval(pollLogs, 500);
+  pollLogs(); // Call immediately
 }
 
 function hideOperationProgress() {
@@ -130,6 +196,12 @@ function hideOperationProgress() {
   if (overlay) {
     overlay.classList.add('hidden');
   }
+  
+  // Stop polling if active
+  if (activeOperation && activeOperation.pollInterval) {
+    clearInterval(activeOperation.pollInterval);
+  }
+  
   activeOperation = null;
   
   // Re-enable all action buttons
@@ -268,8 +340,6 @@ async function startSite(name) {
     return;
   }
   
-  showOperationProgress('starting', name);
-  
   try {
     const response = await fetch(`${API_URL}/sites/${name}/start`, {
       method: 'POST'
@@ -277,32 +347,25 @@ async function startSite(name) {
     
     const result = await response.json();
     
-    if (result.success) {
-      showToast(`${name} started successfully`, 'success');
-      await loadSites();
-    } else {
-      // Check if rebuild is needed
-      if (result.needsRebuild) {
-        hideOperationProgress();
-        const shouldRebuild = confirm(
-          `⚠️ ${name} has a Docker network error and needs to be rebuilt.\n\n` +
-          `Click OK to rebuild now (this will take a few minutes), or Cancel to do it manually.`
-        );
-        
-        if (shouldRebuild) {
-          await rebuildSite(name);
-          return;
-        }
-      } else {
-        throw new Error(result.error);
+    if (result.success && result.operationId) {
+      // Show progress modal with terminal output
+      showOperationProgress('starting', name, result.operationId);
+    } else if (result.needsRebuild) {
+      const shouldRebuild = confirm(
+        `⚠️ ${name} has a Docker network error and needs to be rebuilt.\n\n` +
+        `Click OK to rebuild now (this will take a few minutes), or Cancel to do it manually.`
+      );
+      
+      if (shouldRebuild) {
+        await rebuildSite(name);
       }
+    } else {
+      throw new Error(result.error || 'Failed to start site');
     }
   } catch (error) {
     showToast(`Failed to start ${name}: ${error.message}`, 'error');
-    await loadSites(); // Refresh in case state changed
-  } finally {
-    hideOperationProgress();
   }
+}
 }
 
 async function stopSite(name) {

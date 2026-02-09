@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const { exec } = require('child_process');
+const { exec, spawn } = require('child_process');
 const { promisify } = require('util');
 const fs = require('fs').promises;
 const path = require('path');
@@ -12,6 +12,9 @@ const PORT = 3000;
 
 // Global config
 let APP_CONFIG = null;
+
+// Operation logs storage (in-memory)
+const operationLogs = new Map();
 
 // Middleware
 app.use(cors());
@@ -40,6 +43,73 @@ async function runLandoCommand(command, cwd = null) {
   } catch (error) {
     return { success: false, error: error.message, stderr: error.stderr };
   }
+}
+
+// Helper: Execute Lando command with live output streaming
+async function runLandoCommandWithLogs(operationId, command, cwd = null) {
+  return new Promise((resolve, reject) => {
+    // Initialize log storage for this operation
+    operationLogs.set(operationId, {
+      lines: [],
+      completed: false,
+      success: null,
+      error: null
+    });
+
+    const landoPath = APP_CONFIG.landoPath === 'lando' ? 'lando' : APP_CONFIG.landoPath;
+    const commandArray = command.split(' ');
+    commandArray[0] = landoPath;
+
+    const options = {
+      cwd: cwd || process.cwd(),
+      shell: true
+    };
+
+    const child = spawn(commandArray.join(' '), [], options);
+
+    child.stdout.on('data', (data) => {
+      const lines = data.toString().split('\n').filter(line => line.trim());
+      const log = operationLogs.get(operationId);
+      if (log) {
+        log.lines.push(...lines);
+      }
+    });
+
+    child.stderr.on('data', (data) => {
+      const lines = data.toString().split('\n').filter(line => line.trim());
+      const log = operationLogs.get(operationId);
+      if (log) {
+        log.lines.push(...lines);
+      }
+    });
+
+    child.on('close', (code) => {
+      const log = operationLogs.get(operationId);
+      if (log) {
+        log.completed = true;
+        log.success = code === 0;
+        if (code !== 0) {
+          log.error = `Process exited with code ${code}`;
+        }
+      }
+      
+      if (code === 0) {
+        resolve({ success: true, operationId });
+      } else {
+        reject(new Error(`Command failed with code ${code}`));
+      }
+    });
+
+    child.on('error', (error) => {
+      const log = operationLogs.get(operationId);
+      if (log) {
+        log.completed = true;
+        log.success = false;
+        log.error = error.message;
+      }
+      reject(error);
+    });
+  });
 }
 
 // Helper: Get all Lando sites (running + stopped)
@@ -167,6 +237,24 @@ async function getLandoSites() {
 }
 
 // API Routes
+
+// GET /api/operations/:id/logs - Get logs for an operation
+app.get('/api/operations/:id/logs', (req, res) => {
+  const { id } = req.params;
+  const log = operationLogs.get(id);
+  
+  if (!log) {
+    return res.status(404).json({ success: false, error: 'Operation not found' });
+  }
+  
+  res.json({
+    success: true,
+    logs: log.lines,
+    completed: log.completed,
+    operationSuccess: log.success,
+    error: log.error
+  });
+});
 
 // GET /api/sites - List all sites
 app.get('/api/sites', async (req, res) => {
@@ -297,35 +385,18 @@ app.post('/api/sites/:name/start', async (req, res) => {
       });
     }
     
-    // Set a longer timeout for this request (5 minutes)
-    req.setTimeout(300000);
+    // Generate unique operation ID
+    const operationId = `start-${name}-${Date.now()}`;
     
+    // Send immediate response with operation ID
+    res.json({ success: true, operationId });
+    
+    // Start the operation asynchronously
     console.log(`Starting site ${name} in directory: ${siteDir}`);
-    const result = await runLandoCommand('lando start', siteDir);
-    
-    // Check for specific Docker network errors
-    if (!result.success && (result.stderr || result.error)) {
-      const errorText = result.stderr || result.error;
-      
-      console.error(`Error starting ${name}:`, errorText);
-      
-      if (errorText.includes('network') && errorText.includes('not found')) {
-        return res.status(500).json({ 
-          success: false, 
-          error: 'Docker network error detected. This site needs to be rebuilt.',
-          needsRebuild: true
-        });
-      }
-    }
-    
-    if (result.success || (result.stdout && result.stdout.includes('started successfully'))) {
-      res.json({ success: true, message: `Site ${name} started` });
-    } else {
-      res.status(500).json({ 
-        success: false, 
-        error: result.stderr || result.error || 'Failed to start site',
-        details: result.stderr
-      });
+    try {
+      await runLandoCommandWithLogs(operationId, 'lando start', siteDir);
+    } catch (error) {
+      console.error(`Error starting ${name}:`, error.message);
     }
   } catch (error) {
     console.error('Error in start endpoint:', error);
