@@ -17,9 +17,28 @@
     .setup-header {
       text-align: center;
       margin-bottom: 3rem;
+      position: relative;
     }
     .setup-header h1 {
       margin-bottom: 0.5rem;
+    }
+    .close-btn {
+      position: absolute;
+      top: 0;
+      right: 0;
+      background: none;
+      border: none;
+      font-size: 2rem;
+      color: #999;
+      cursor: pointer;
+      padding: 0;
+      width: 2rem;
+      height: 2rem;
+      line-height: 1;
+      transition: color 0.2s;
+    }
+    .close-btn:hover {
+      color: #333;
     }
     .setup-steps {
       margin-bottom: 2rem;
@@ -52,6 +71,7 @@
 <body>
   <div class="setup-container">
     <div class="setup-header">
+      <button class="close-btn" onclick="window.location.href='/'" title="Close">&times;</button>
       <h1>🦙 Welcome to Lando GUI!</h1>
       <p>Let's get you set up. We'll try to detect your settings automatically.</p>
     </div>
@@ -102,6 +122,7 @@
     </div>
 
     <div class="form-actions">
+      <button class="btn btn-secondary" onclick="window.location.href='/'">Cancel</button>
       <button class="btn btn-primary" onclick="saveSetup()">Save Settings</button>
     </div>
   </div>
