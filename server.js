@@ -607,20 +607,12 @@ app.post('/api/sites/:name/migrate-mysql', async (req, res) => {
     (async () => {
       try {
         // Step 1: Export database
-        await runStep('📦 Step 1/6: Exporting database...', `lando db-export ${backupFile}`);
+        await runStep('📦 Step 1/5: Exporting database...', `lando db-export ${backupFile}`);
         log.lines.push(`✅ Database exported to ${backupFile}`);
         log.lines.push('');
         
-        // Step 1.5: Move backup outside site directory (lando destroy will delete it otherwise)
-        log.lines.push('💾 Moving backup to safe location...');
-        const backupPath = path.join(siteDir, backupFile);
-        const safeBackupPath = path.join('/tmp', `lando-migrate-${backupFile}`);
-        await fs.rename(backupPath, safeBackupPath);
-        log.lines.push(`✅ Backup moved to ${safeBackupPath}`);
-        log.lines.push('');
-        
         // Step 2: Update config
-        log.lines.push('📝 Step 2/6: Updating configuration...');
+        log.lines.push('📝 Step 2/5: Updating configuration...');
         const landoYmlPath = path.join(siteDir, '.lando.yml');
         let content = await fs.readFile(landoYmlPath, 'utf-8');
         
@@ -673,23 +665,17 @@ app.post('/api/sites/:name/migrate-mysql', async (req, res) => {
         log.lines.push('');
         
         // Step 4: Start with new MySQL version (recreates from scratch)
-        await runStep('🚀 Step 4/6: Starting app with new MySQL version...', 'lando start');
+        await runStep('🚀 Step 4/5: Starting app with new MySQL version...', 'lando start');
         log.lines.push('✅ App started with new MySQL version');
         log.lines.push('');
         
-        // Step 4.5: Move backup back into site directory for import
-        log.lines.push('📥 Moving backup back for import...');
-        await fs.rename(safeBackupPath, backupPath);
-        log.lines.push('✅ Backup ready for import');
-        log.lines.push('');
-        
-        // Step 5: Import database
-        await runStep('📥 Step 5/6: Importing database...', `lando db-import ${backupFile}`);
+        // Step 5: Import database (backup file is still in site directory - lando destroy doesn't delete files)
+        await runStep('📥 Step 5/5: Importing database...', `lando db-import ${backupFile}`);
         log.lines.push('✅ Database imported successfully');
         log.lines.push('');
         
-        // Step 6: Cleanup backup file
-        log.lines.push('🧹 Step 6/6: Cleaning up backup file...');
+        // Cleanup backup file
+        log.lines.push('🧹 Cleaning up backup file...');
         try {
           await fs.unlink(path.join(siteDir, backupFile));
           log.lines.push('✅ Backup file removed');
