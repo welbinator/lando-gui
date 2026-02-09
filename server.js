@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const { exec, spawn } = require('child_process');
 const { promisify } = require('util');
+const execPromise = promisify(exec);
 const fs = require('fs').promises;
 const path = require('path');
 const config = require('./config');
