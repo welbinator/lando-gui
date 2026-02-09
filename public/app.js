@@ -379,8 +379,6 @@ async function stopSite(name) {
     return;
   }
   
-  showOperationProgress('stopping', name);
-  
   try {
     const response = await fetch(`${API_URL}/sites/${name}/stop`, {
       method: 'POST'
@@ -388,16 +386,13 @@ async function stopSite(name) {
     
     const result = await response.json();
     
-    if (result.success) {
-      showToast(`${name} stopped successfully`, 'success');
-      await loadSites();
+    if (result.success && result.operationId) {
+      showOperationProgress('stopping', name, result.operationId);
     } else {
-      throw new Error(result.error);
+      throw new Error(result.error || 'Failed to stop site');
     }
   } catch (error) {
     showToast(`Failed to stop ${name}: ${error.message}`, 'error');
-  } finally {
-    hideOperationProgress();
   }
 }
 
@@ -407,8 +402,6 @@ async function restartSite(name) {
     return;
   }
   
-  showOperationProgress('restarting', name);
-  
   try {
     const response = await fetch(`${API_URL}/sites/${name}/restart`, {
       method: 'POST'
@@ -416,16 +409,13 @@ async function restartSite(name) {
     
     const result = await response.json();
     
-    if (result.success) {
-      showToast(`${name} restarted successfully`, 'success');
-      await loadSites();
+    if (result.success && result.operationId) {
+      showOperationProgress('restarting', name, result.operationId);
     } else {
-      throw new Error(result.error);
+      throw new Error(result.error || 'Failed to restart site');
     }
   } catch (error) {
     showToast(`Failed to restart ${name}: ${error.message}`, 'error');
-  } finally {
-    hideOperationProgress();
   }
 }
 
@@ -435,8 +425,6 @@ async function rebuildSite(name) {
     return;
   }
   
-  showOperationProgress('rebuilding', name);
-  
   try {
     const response = await fetch(`${API_URL}/sites/${name}/rebuild`, {
       method: 'POST'
@@ -444,16 +432,13 @@ async function rebuildSite(name) {
     
     const result = await response.json();
     
-    if (result.success) {
-      showToast(`${name} rebuilt successfully`, 'success');
-      await loadSites();
+    if (result.success && result.operationId) {
+      showOperationProgress('rebuilding', name, result.operationId);
     } else {
-      throw new Error(result.error);
+      throw new Error(result.error || 'Failed to rebuild site');
     }
   } catch (error) {
     showToast(`Failed to rebuild ${name}: ${error.message}`, 'error');
-  } finally {
-    hideOperationProgress();
   }
 }
 
@@ -464,7 +449,7 @@ function confirmDeleteSite(name) {
 }
 
 async function handleConfirmDelete() {
-  if (!currentDeleteSite) return;
+    if (!currentDeleteSite) return;
   
   if (activeOperation) {
     showToast('Please wait for the current operation to finish', 'error');
@@ -474,8 +459,6 @@ async function handleConfirmDelete() {
   const name = currentDeleteSite;
   hideDeleteModal();
   
-  showOperationProgress('destroying', name);
-  
   try {
     const response = await fetch(`${API_URL}/sites/${name}`, {
       method: 'DELETE'
@@ -483,16 +466,13 @@ async function handleConfirmDelete() {
     
     const result = await response.json();
     
-    if (result.success) {
-      showToast(`${name} destroyed completely`, 'success');
-      await loadSites();
+    if (result.success && result.operationId) {
+      showOperationProgress('destroying', name, result.operationId);
     } else {
-      throw new Error(result.error);
+      throw new Error(result.error || 'Failed to destroy site');
     }
   } catch (error) {
     showToast(`Failed to destroy ${name}: ${error.message}`, 'error');
-  } finally {
-    hideOperationProgress();
   }
 }
 

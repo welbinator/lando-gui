@@ -418,15 +418,18 @@ app.post('/api/sites/:name/stop', async (req, res) => {
     }
     
     const siteDir = site.dir;
+    const operationId = `stop-${name}-${Date.now()}`;
+    
     console.log(`Stopping site ${name} in directory: ${siteDir}`);
     
-    const result = await runLandoCommand('lando stop', siteDir);
+    // Send immediate response with operation ID
+    res.json({ success: true, operationId });
     
-    if (result.success) {
-      res.json({ success: true, message: `Site ${name} stopped` });
-    } else {
-      console.error(`Error stopping ${name}:`, result.stderr || result.error);
-      res.status(500).json({ success: false, error: result.stderr || result.error });
+    // Start the operation asynchronously
+    try {
+      await runLandoCommandWithLogs(operationId, 'lando stop', siteDir);
+    } catch (error) {
+      console.error(`Error stopping ${name}:`, error.message);
     }
   } catch (error) {
     console.error('Error in stop endpoint:', error);
@@ -448,15 +451,18 @@ app.post('/api/sites/:name/restart', async (req, res) => {
     }
     
     const siteDir = site.dir;
+    const operationId = `restart-${name}-${Date.now()}`;
+    
     console.log(`Restarting site ${name} in directory: ${siteDir}`);
     
-    const result = await runLandoCommand('lando restart', siteDir);
+    // Send immediate response with operation ID
+    res.json({ success: true, operationId });
     
-    if (result.success) {
-      res.json({ success: true, message: `Site ${name} restarted` });
-    } else {
-      console.error(`Error restarting ${name}:`, result.stderr || result.error);
-      res.status(500).json({ success: false, error: result.stderr || result.error });
+    // Start the operation asynchronously
+    try {
+      await runLandoCommandWithLogs(operationId, 'lando restart', siteDir);
+    } catch (error) {
+      console.error(`Error restarting ${name}:`, error.message);
     }
   } catch (error) {
     console.error('Error in restart endpoint:', error);
@@ -478,15 +484,18 @@ app.post('/api/sites/:name/rebuild', async (req, res) => {
     }
     
     const siteDir = site.dir;
+    const operationId = `rebuild-${name}-${Date.now()}`;
+    
     console.log(`Rebuilding site ${name} in directory: ${siteDir}`);
     
-    const result = await runLandoCommand('lando rebuild -y', siteDir);
+    // Send immediate response with operation ID
+    res.json({ success: true, operationId });
     
-    if (result.success) {
-      res.json({ success: true, message: `Site ${name} rebuilt` });
-    } else {
-      console.error(`Error rebuilding ${name}:`, result.stderr || result.error);
-      res.status(500).json({ success: false, error: result.stderr || result.error });
+    // Start the operation asynchronously
+    try {
+      await runLandoCommandWithLogs(operationId, 'lando rebuild -y', siteDir);
+    } catch (error) {
+      console.error(`Error rebuilding ${name}:`, error.message);
     }
   } catch (error) {
     console.error('Error in rebuild endpoint:', error);
@@ -508,20 +517,55 @@ app.delete('/api/sites/:name', async (req, res) => {
     }
     
     const siteDir = site.dir;
+    const operationId = `destroy-${name}-${Date.now()}`;
     
-    // Destroy Lando site
-    await runLandoCommand('lando destroy -y', siteDir);
+    // Send immediate response with operation ID
+    res.json({ success: true, operationId });
     
-    // Remove Docker volumes
-    await runLandoCommand(`docker volume rm ${name}_data_database ${name}_home_appserver ${name}_home_database 2>/dev/null || true`);
-    
-    // Remove Docker network
-    await runLandoCommand(`docker network rm ${name}_default 2>/dev/null || true`);
-    
-    // Delete directory
-    await fs.rm(siteDir, { recursive: true, force: true });
-    
-    res.json({ success: true, message: `Site ${name} destroyed completely` });
+    // Start the operation asynchronously
+    (async () => {
+      try {
+        // Destroy Lando site with logs
+        await runLandoCommandWithLogs(operationId, 'lando destroy -y', siteDir);
+        
+        // Append cleanup messages to logs
+        const log = operationLogs.get(operationId);
+        if (log) {
+          log.lines.push('Removing Docker volumes...');
+        }
+        
+        // Remove Docker volumes
+        await runLandoCommand(`docker volume rm ${name}_data_database ${name}_home_appserver ${name}_home_database 2>/dev/null || true`);
+        
+        if (log) {
+          log.lines.push('Removing Docker network...');
+        }
+        
+        // Remove Docker network
+        await runLandoCommand(`docker network rm ${name}_default 2>/dev/null || true`);
+        
+        if (log) {
+          log.lines.push('Deleting site directory...');
+        }
+        
+        // Delete directory
+        await fs.rm(siteDir, { recursive: true, force: true });
+        
+        if (log) {
+          log.lines.push('Site destroyed completely!');
+          log.completed = true;
+          log.success = true;
+        }
+      } catch (error) {
+        const log = operationLogs.get(operationId);
+        if (log) {
+          log.lines.push(`Error: ${error.message}`);
+          log.completed = true;
+          log.success = false;
+          log.error = error.message;
+        }
+      }
+    })();
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
