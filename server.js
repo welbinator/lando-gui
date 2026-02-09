@@ -551,6 +551,145 @@ app.post('/api/sites/:name/rebuild', async (req, res) => {
   }
 });
 
+// POST /api/sites/:name/migrate-mysql - Safe MySQL version change with export/import
+app.post('/api/sites/:name/migrate-mysql', async (req, res) => {
+  try {
+    const { name } = req.params;
+    const { php, database, phpmyadmin } = req.body;
+    
+    // Find the site directory
+    const sites = await getLandoSites();
+    const site = sites.find(s => s.app === name);
+    
+    if (!site) {
+      return res.status(404).json({ success: false, error: `Site ${name} not found` });
+    }
+    
+    const siteDir = site.dir;
+    const operationId = `migrate-mysql-${name}-${Date.now()}`;
+    const backupFile = `backup-${Date.now()}.sql`;
+    
+    console.log(`Migrating MySQL for ${name} to ${database}`);
+    
+    // Send immediate response with operation ID
+    res.json({ success: true, operationId });
+    
+    // Initialize log storage
+    operationLogs.set(operationId, {
+      lines: [],
+      completed: false,
+      success: null,
+      error: null
+    });
+    
+    const log = operationLogs.get(operationId);
+    
+    // Start the migration asynchronously
+    (async () => {
+      try {
+        // Step 1: Export database
+        log.lines.push('📦 Exporting database...');
+        await runLandoCommandWithLogs(operationId, `lando db-export ${backupFile}`, siteDir);
+        log.lines.push(`✅ Database exported to ${backupFile}`);
+        
+        // Step 2: Stop site
+        log.lines.push('⏸️  Stopping site...');
+        await runLandoCommandWithLogs(operationId, 'lando stop', siteDir);
+        log.lines.push('✅ Site stopped');
+        
+        // Step 3: Update config
+        log.lines.push('📝 Updating configuration...');
+        const landoYmlPath = path.join(siteDir, '.lando.yml');
+        let content = await fs.readFile(landoYmlPath, 'utf-8');
+        
+        // Update PHP if provided
+        if (php) {
+          if (content.includes('php:')) {
+            content = content.replace(/php:\s*['"]?[^'\n"]+['"]?/, `php: '${php}'`);
+          } else {
+            if (content.includes('webroot:')) {
+              content = content.replace(/(webroot:[^\n]+)/, `$1\n  php: '${php}'`);
+            }
+          }
+        }
+        
+        // Update database version
+        if (database) {
+          if (content.includes('database:')) {
+            content = content.replace(/database:\s*.+/, `database: ${database}`);
+          } else {
+            if (content.includes('php:')) {
+              content = content.replace(/(php:\s*['"]?[^'\n"]+['"]?)/, `$1\n  database: ${database}`);
+            } else if (content.includes('webroot:')) {
+              content = content.replace(/(webroot:[^\n]+)/, `$1\n  database: ${database}`);
+            }
+          }
+        }
+        
+        // Update phpMyAdmin
+        const hasServices = content.includes('services:');
+        const hasPhpMyAdmin = content.includes('type: phpmyadmin');
+        
+        if (phpmyadmin && !hasPhpMyAdmin) {
+          if (hasServices) {
+            content = content.replace(/services:/, `services:\n  myservice:\n    type: phpmyadmin`);
+          } else {
+            content += `\nservices:\n  myservice:\n    type: phpmyadmin\n`;
+          }
+        } else if (!phpmyadmin && hasPhpMyAdmin) {
+          content = content.replace(/services:\s*\n\s*myservice:\s*\n\s*type:\s*phpmyadmin\s*\n?/, '');
+          content = content.replace(/\nservices:\s*\n?$/, '');
+        }
+        
+        await fs.writeFile(landoYmlPath, content);
+        log.lines.push(`✅ Configuration updated to ${database}`);
+        
+        // Step 4: Remove old database volume
+        log.lines.push('🗑️  Removing old database volume...');
+        const volumeName = `${name.replace(/-/g, '')}_data_database`;
+        try {
+          await execPromise(`docker volume rm ${volumeName}`);
+          log.lines.push('✅ Old database volume removed');
+        } catch (err) {
+          log.lines.push(`⚠️  Could not remove volume (may not exist): ${err.message}`);
+        }
+        
+        // Step 5: Start with new MySQL version
+        log.lines.push('🚀 Starting site with new MySQL version...');
+        await runLandoCommandWithLogs(operationId, 'lando start', siteDir);
+        log.lines.push('✅ Site started with new MySQL version');
+        
+        // Step 6: Import database
+        log.lines.push('📥 Importing database...');
+        await runLandoCommandWithLogs(operationId, `lando db-import ${backupFile}`, siteDir);
+        log.lines.push('✅ Database imported successfully');
+        
+        // Step 7: Cleanup backup file
+        log.lines.push('🧹 Cleaning up backup file...');
+        await fs.unlink(path.join(siteDir, backupFile));
+        log.lines.push('✅ Backup file removed');
+        
+        log.lines.push('');
+        log.lines.push('🎉 MySQL migration completed successfully!');
+        log.completed = true;
+        log.success = true;
+        
+      } catch (error) {
+        console.error(`Error migrating MySQL for ${name}:`, error);
+        log.lines.push('');
+        log.lines.push(`❌ Migration failed: ${error.message}`);
+        log.completed = true;
+        log.success = false;
+        log.error = error.message;
+      }
+    })();
+    
+  } catch (error) {
+    console.error('Error in migrate-mysql endpoint:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // DELETE /api/sites/:name
 app.delete('/api/sites/:name', async (req, res) => {
   try {

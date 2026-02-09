@@ -131,6 +131,32 @@
   </div>
 
   <!-- Site Settings Modal -->
+  <!-- MySQL Migration Warning Modal -->
+  <div id="mysqlWarningModal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>⚠️ MySQL Version Change Detected</h2>
+      </div>
+      <div class="modal-body">
+        <p><strong>You are changing the MySQL/database version.</strong></p>
+        <p>This requires a safe migration process:</p>
+        <ol style="text-align: left; margin: 1rem 0; padding-left: 2rem;">
+          <li>Export your current database</li>
+          <li>Update configuration</li>
+          <li>Remove old database volume</li>
+          <li>Start with new MySQL version</li>
+          <li>Import your data back</li>
+        </ol>
+        <p><strong>This process will take a few minutes. Your data will be preserved.</strong></p>
+        <p style="color: #ff6b6b;">⚠️ Make sure your site is not in active use during this process!</p>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-secondary" id="cancelMysqlMigration">Cancel</button>
+        <button type="button" class="btn btn-primary" id="confirmMysqlMigration">Export, Migrate & Reimport</button>
+      </div>
+    </div>
+  </div>
+
   <div id="settingsModal" class="modal hidden">
     <div class="modal-content">
       <div class="modal-header">

@@ -116,6 +116,10 @@ function showOperationProgress(operation, siteName, operationId = null) {
       title: `Rebuilding ${siteName}`,
       message: 'This may take several minutes. Please wait...'
     },
+    migrating: {
+      title: `Migrating MySQL for ${siteName}`,
+      message: 'Exporting, updating config, and reimporting database. This may take several minutes...'
+    },
     destroying: {
       title: `Destroying ${siteName}`,
       message: 'Removing site and cleaning up...'
@@ -491,6 +495,8 @@ function showToast(message, type = 'info') {
 }
 
 // Site Settings Modal Functions
+let originalDatabaseVersion = null;
+
 async function openSiteSettings(siteName) {
   console.log('openSiteSettings called with:', siteName);
   
@@ -518,6 +524,9 @@ async function openSiteSettings(siteName) {
       document.getElementById('settingsDatabase').value = result.config.database || 'mysql:8.0';
       document.getElementById('settingsPhpmyadmin').checked = result.config.hasPhpMyAdmin || false;
       
+      // Store original database version for comparison
+      originalDatabaseVersion = result.config.database || 'mysql:8.0';
+      
       settingsModal.classList.remove('hidden');
     } else {
       throw new Error(result.error);
@@ -530,6 +539,7 @@ async function openSiteSettings(siteName) {
 function hideSettingsModal() {
   settingsModal.classList.add('hidden');
   currentSettingsSite = null;
+  originalDatabaseVersion = null;
 }
 
 async function handleSaveSettings(e) {
@@ -556,6 +566,20 @@ async function handleSaveSettings(e) {
   
   console.log('Saving settings:', settings, 'for site:', currentSettingsSite);
   
+  // Check if database version changed
+  if (settings.database !== originalDatabaseVersion) {
+    console.log(`Database version changed from ${originalDatabaseVersion} to ${settings.database}`);
+    // Store settings for later and show warning modal
+    window.pendingMysqlMigration = {
+      siteName: currentSettingsSite,
+      settings: settings
+    };
+    hideSettingsModal();
+    document.getElementById('mysqlWarningModal').classList.remove('hidden');
+    return;
+  }
+  
+  // Normal save (no MySQL change)
   const siteToUpdate = currentSettingsSite;
   hideSettingsModal();
   
@@ -597,6 +621,39 @@ cancelSettings.addEventListener('click', () => hideSettingsModal());
 settingsForm.addEventListener('submit', handleSaveSettings);
 settingsModal.addEventListener('click', (e) => {
   if (e.target === settingsModal) hideSettingsModal();
+});
+
+// MySQL Warning Modal handlers
+document.getElementById('cancelMysqlMigration').addEventListener('click', () => {
+  document.getElementById('mysqlWarningModal').classList.add('hidden');
+  window.pendingMysqlMigration = null;
+});
+
+document.getElementById('confirmMysqlMigration').addEventListener('click', async () => {
+  const migration = window.pendingMysqlMigration;
+  if (!migration) return;
+  
+  document.getElementById('mysqlWarningModal').classList.add('hidden');
+  
+  try {
+    const response = await fetch(`${API_URL}/sites/${migration.siteName}/migrate-mysql`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(migration.settings)
+    });
+    
+    const result = await response.json();
+    
+    if (result.success && result.operationId) {
+      showOperationProgress('migrating', migration.siteName, result.operationId);
+    } else {
+      throw new Error(result.error || 'Migration failed');
+    }
+  } catch (error) {
+    showToast(`Failed to migrate MySQL: ${error.message}`, 'error');
+  } finally {
+    window.pendingMysqlMigration = null;
+  }
 });
 
 // Delegate settings button clicks (since buttons are dynamically added)
