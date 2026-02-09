@@ -669,15 +669,16 @@ app.post('/api/sites/:name/migrate-mysql', async (req, res) => {
         log.lines.push('✅ App started with new MySQL version');
         log.lines.push('');
         
-        // Step 5: Import database (backup file is still in site directory - lando destroy doesn't delete files)
-        await runStep('📥 Step 5/5: Importing database...', `lando db-import ${backupFile}`);
+        // Step 5: Import database (backup file has .gz added by lando db-export)
+        const actualBackupFile = `${backupFile}.gz`;  // lando db-export added .gz
+        await runStep('📥 Step 5/5: Importing database...', `lando db-import ${actualBackupFile}`);
         log.lines.push('✅ Database imported successfully');
         log.lines.push('');
         
         // Cleanup backup file
         log.lines.push('🧹 Cleaning up backup file...');
         try {
-          await fs.unlink(path.join(siteDir, backupFile));
+          await fs.unlink(path.join(siteDir, actualBackupFile));
           log.lines.push('✅ Backup file removed');
         } catch (err) {
           // File might already be gone, that's okay
