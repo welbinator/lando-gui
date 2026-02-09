@@ -366,7 +366,6 @@ async function startSite(name) {
     showToast(`Failed to start ${name}: ${error.message}`, 'error');
   }
 }
-}
 
 async function stopSite(name) {
   if (activeOperation) {
