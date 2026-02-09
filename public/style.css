@@ -515,8 +515,35 @@ small {
   border-radius: 12px;
   padding: 3rem 2rem;
   text-align: center;
-  min-width: 350px;
+  width: 700px;
+  max-width: 90vw;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  position: relative;
+}
+
+.close-operation-btn {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  background: none;
+  border: none;
+  font-size: 2rem;
+  color: var(--secondary);
+  cursor: pointer;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: all 0.2s;
+  line-height: 1;
+  padding: 0;
+}
+
+.close-operation-btn:hover {
+  background: var(--light);
+  color: var(--dark);
 }
 
 .operation-spinner {
@@ -538,6 +565,48 @@ small {
 .operation-modal p {
   color: var(--secondary);
   font-size: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.terminal-output {
+  background: #1e1e1e;
+  color: #00ff00;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 0.875rem;
+  padding: 1rem;
+  border-radius: 6px;
+  width: 600px;
+  max-width: 100%;
+  height: 300px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  text-align: left;
+  margin-top: 1.5rem;
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.terminal-output::-webkit-scrollbar {
+  width: 8px;
+}
+
+.terminal-output::-webkit-scrollbar-track {
+  background: #2e2e2e;
+}
+
+.terminal-output::-webkit-scrollbar-thumb {
+  background: #555;
+  border-radius: 4px;
+}
+
+.terminal-output::-webkit-scrollbar-thumb:hover {
+  background: #666;
+}
+
+#terminalLines div {
+  margin: 0;
+  padding: 2px 0;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 /* Responsive */
@@ -562,4 +631,78 @@ small {
     min-width: 280px;
     padding: 2rem 1.5rem;
   }
+}
+
+/* Operation Cards - Bottom Left */
+.operations-container {
+  position: fixed;
+  bottom: 1rem;
+  left: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  z-index: 10000;
+  max-width: 300px;
+}
+
+.operation-card {
+  background: white;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  border-left: 3px solid var(--primary);
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.operation-card.success {
+  border-left-color: #22c55e;
+}
+
+.operation-card.error {
+  border-left-color: #ef4444;
+}
+
+.operation-card-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--light);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.operation-card-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.operation-card-title {
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--dark);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.operation-card-status {
+  font-size: 0.75rem;
+  color: var(--secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

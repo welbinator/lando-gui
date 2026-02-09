@@ -1,7 +1,8 @@
 const express = require('express');
 const cors = require('cors');
-const { exec } = require('child_process');
+const { exec, spawn } = require('child_process');
 const { promisify } = require('util');
+const execPromise = promisify(exec);
 const fs = require('fs').promises;
 const path = require('path');
 const config = require('./config');
@@ -12,6 +13,9 @@ const PORT = 3000;
 
 // Global config
 let APP_CONFIG = null;
+
+// Operation logs storage (in-memory)
+const operationLogs = new Map();
 
 // Middleware
 app.use(cors());
@@ -40,6 +44,101 @@ async function runLandoCommand(command, cwd = null) {
   } catch (error) {
     return { success: false, error: error.message, stderr: error.stderr };
   }
+}
+
+// Helper: Execute Lando command with live output streaming
+async function runLandoCommandWithLogs(operationId, command, cwd = null) {
+            return new Promise((resolve, reject) => {
+    // Initialize log storage for this operation
+    operationLogs.set(operationId, {
+      lines: [],
+      completed: false,
+      success: null,
+      error: null
+    });
+
+    const landoPath = APP_CONFIG.landoPath === 'lando' ? 'lando' : APP_CONFIG.landoPath;
+    const commandArray = command.split(' ');
+    commandArray[0] = landoPath;
+
+    const options = {
+      cwd: cwd || process.cwd(),
+      shell: true,
+      env: { 
+        ...process.env, 
+        LANDO_NO_COLOR: '1',
+        PYTHONUNBUFFERED: '1',
+        NODE_NO_WARNINGS: '1'
+      }
+    };
+
+    // Helper to strip ANSI escape codes
+    const stripAnsi = (str) => {
+      return str.replace(/\x1B\[[0-9;?]*[a-zA-Z]/g, '') // CSI sequences
+                .replace(/\x1B\][0-9];[^\x07]*\x07/g, '') // OSC sequences
+                .replace(/\x1B[=>]/g, '') // Other escape sequences  
+                .replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F]/g, ''); // Control chars
+    };
+
+    console.log(`[${operationId}] Spawning command: ${commandArray.join(' ')}`);
+    const child = spawn(commandArray.join(' '), [], options);
+
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+
+    child.stdout.on('data', (data) => {
+      const text = stripAnsi(data.toString());
+      if (text.trim()) {
+        console.log(`[${operationId}] stdout:`, text);
+        const lines = text.split('\n').filter(line => line.trim());
+        const log = operationLogs.get(operationId);
+        if (log) {
+          log.lines.push(...lines);
+        }
+      }
+    });
+
+    child.stderr.on('data', (data) => {
+      const text = stripAnsi(data.toString());
+      if (text.trim()) {
+        console.log(`[${operationId}] stderr:`, text);
+        const lines = text.split('\n').filter(line => line.trim());
+        const log = operationLogs.get(operationId);
+        if (log) {
+          log.lines.push(...lines);
+        }
+      }
+    });
+
+    child.on('close', (code) => {
+      console.log(`[${operationId}] Process closed with code ${code}`);
+      const log = operationLogs.get(operationId);
+      if (log) {
+        log.completed = true;
+        log.success = code === 0;
+        if (code !== 0) {
+          log.error = `Process exited with code ${code}`;
+        }
+      }
+      
+      if (code === 0) {
+        resolve({ success: true, operationId });
+      } else {
+        reject(new Error(`Command failed with code ${code}`));
+      }
+    });
+
+    child.on('error', (error) => {
+      console.error(`[${operationId}] Process error:`, error);
+      const log = operationLogs.get(operationId);
+      if (log) {
+        log.completed = true;
+        log.success = false;
+        log.error = error.message;
+      }
+      reject(error);
+    });
+  });
 }
 
 // Helper: Get all Lando sites (running + stopped)
@@ -168,6 +267,24 @@ async function getLandoSites() {
 
 // API Routes
 
+// GET /api/operations/:id/logs - Get logs for an operation
+app.get('/api/operations/:id/logs', (req, res) => {
+  const { id } = req.params;
+  const log = operationLogs.get(id);
+  
+  if (!log) {
+    return res.status(404).json({ success: false, error: 'Operation not found' });
+  }
+  
+  res.json({
+    success: true,
+    logs: log.lines,
+    completed: log.completed,
+    operationSuccess: log.success,
+    error: log.error
+  });
+});
+
 // GET /api/sites - List all sites
 app.get('/api/sites', async (req, res) => {
   try {
@@ -197,72 +314,92 @@ app.post('/api/sites', async (req, res) => {
       // Directory doesn't exist, good to proceed
     }
 
-    // Create directory
-    await fs.mkdir(siteDir, { recursive: true });
+    const operationId = `create-${name}-${Date.now()}`;
+    
+    // Send immediate response with operation ID
+    res.json({ success: true, operationId });
 
-    // Download WordPress if recipe is wordpress
-    if (recipe === 'wordpress') {
-      await runLandoCommand('wget https://wordpress.org/latest.tar.gz', siteDir);
-      await runLandoCommand('tar -xzf latest.tar.gz && mv wordpress/* . && rm -rf wordpress latest.tar.gz', siteDir);
-    }
+    // Start the operation asynchronously
+    (async () => {
+      const log = operationLogs.get(operationId) || { lines: [], completed: false, success: null, error: null };
+      operationLogs.set(operationId, log);
 
-    // Create .lando.yml
-    const landoConfig = {
-      name: name,
-      recipe: recipe,
-      config: {
-        webroot: webroot || '.',
-        php: php || '8.1'
-      }
-    };
+      try {
+        // Create directory
+        log.lines.push(`Creating directory: ${siteDir}`);
+        await fs.mkdir(siteDir, { recursive: true });
 
-    if (database) {
-      landoConfig.config.database = database;
-    }
+        // Download WordPress if recipe is wordpress
+        if (recipe === 'wordpress') {
+          log.lines.push('Downloading WordPress...');
+          await runLandoCommand('wget https://wordpress.org/latest.tar.gz', siteDir);
+          
+          log.lines.push('Extracting WordPress files...');
+          await runLandoCommand('tar -xzf latest.tar.gz && mv wordpress/* . && rm -rf wordpress latest.tar.gz', siteDir);
+        }
 
-    let yamlContent = `name: ${landoConfig.name}
+        // Create .lando.yml
+        log.lines.push('Creating .lando.yml configuration...');
+        const landoConfig = {
+          name: name,
+          recipe: recipe,
+          config: {
+            webroot: webroot || '.',
+            php: php || '8.1'
+          }
+        };
+
+        if (database) {
+          landoConfig.config.database = database;
+        }
+
+        let yamlContent = `name: ${landoConfig.name}
 recipe: ${landoConfig.recipe}
 config:
   webroot: ${landoConfig.config.webroot}
   php: '${landoConfig.config.php}'${database ? `\n  database: ${database}` : ''}
 `;
 
-    // Add phpMyAdmin service if requested
-    if (phpmyadmin) {
-      yamlContent += `\nservices:\n  myservice:\n    type: phpmyadmin\n`;
-    }
+        // Add phpMyAdmin service if requested
+        if (phpmyadmin) {
+          yamlContent += `\nservices:\n  myservice:\n    type: phpmyadmin\n`;
+        }
 
-    await fs.writeFile(path.join(siteDir, '.lando.yml'), yamlContent);
+        await fs.writeFile(path.join(siteDir, '.lando.yml'), yamlContent);
 
-    // Start Lando
-    const startResult = await runLandoCommand('lando start', siteDir);
+        // Start Lando with streaming output
+        log.lines.push('Starting Lando (this may take a minute)...');
+        await runLandoCommandWithLogs(operationId, 'lando start', siteDir);
 
-    if (!startResult.success) {
-      return res.status(500).json({ 
-        success: false, 
-        error: 'Failed to start Lando',
-        details: startResult.stderr || startResult.error
-      });
-    }
+        // If WordPress, create wp-config and install
+        if (recipe === 'wordpress') {
+          log.lines.push('Configuring WordPress database...');
+          await runLandoCommand(
+            'lando wp config create --dbname=wordpress --dbuser=wordpress --dbpass=wordpress --dbhost=database --skip-check',
+            siteDir
+          );
+          
+          log.lines.push('Installing WordPress...');
+          await runLandoCommand(
+            `lando wp core install --url=https://${name}.lndo.site --title="${name}'s Site" --admin_user=james --admin_password=pepsidude --admin_email=james.welbes@gmail.com`,
+            siteDir
+          );
+          
+          log.lines.push(`Site ready at: https://${name}.lndo.site`);
+          log.lines.push('WordPress login: james / pepsidude');
+        }
 
-    // If WordPress, create wp-config and install
-    if (recipe === 'wordpress') {
-      await runLandoCommand(
-        'lando wp config create --dbname=wordpress --dbuser=wordpress --dbpass=wordpress --dbhost=database --skip-check',
-        siteDir
-      );
-      
-      await runLandoCommand(
-        `lando wp core install --url=https://${name}.lndo.site --title="${name}'s Site" --admin_user=james --admin_password=pepsidude --admin_email=james.welbes@gmail.com`,
-        siteDir
-      );
-    }
+        log.lines.push('✅ Site created successfully!');
+        log.completed = true;
+        log.success = true;
 
-    res.json({ 
-      success: true, 
-      message: `Site ${name} created successfully`,
-      url: `https://${name}.lndo.site`
-    });
+      } catch (error) {
+        log.lines.push(`❌ Error: ${error.message}`);
+        log.completed = true;
+        log.success = false;
+        log.error = error.message;
+      }
+    })();
 
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -297,35 +434,18 @@ app.post('/api/sites/:name/start', async (req, res) => {
       });
     }
     
-    // Set a longer timeout for this request (5 minutes)
-    req.setTimeout(300000);
+    // Generate unique operation ID
+    const operationId = `start-${name}-${Date.now()}`;
     
+    // Send immediate response with operation ID
+    res.json({ success: true, operationId });
+    
+    // Start the operation asynchronously
     console.log(`Starting site ${name} in directory: ${siteDir}`);
-    const result = await runLandoCommand('lando start', siteDir);
-    
-    // Check for specific Docker network errors
-    if (!result.success && (result.stderr || result.error)) {
-      const errorText = result.stderr || result.error;
-      
-      console.error(`Error starting ${name}:`, errorText);
-      
-      if (errorText.includes('network') && errorText.includes('not found')) {
-        return res.status(500).json({ 
-          success: false, 
-          error: 'Docker network error detected. This site needs to be rebuilt.',
-          needsRebuild: true
-        });
-      }
-    }
-    
-    if (result.success || (result.stdout && result.stdout.includes('started successfully'))) {
-      res.json({ success: true, message: `Site ${name} started` });
-    } else {
-      res.status(500).json({ 
-        success: false, 
-        error: result.stderr || result.error || 'Failed to start site',
-        details: result.stderr
-      });
+    try {
+      await runLandoCommandWithLogs(operationId, 'lando start', siteDir);
+    } catch (error) {
+      console.error(`Error starting ${name}:`, error.message);
     }
   } catch (error) {
     console.error('Error in start endpoint:', error);
@@ -347,15 +467,18 @@ app.post('/api/sites/:name/stop', async (req, res) => {
     }
     
     const siteDir = site.dir;
+    const operationId = `stop-${name}-${Date.now()}`;
+    
     console.log(`Stopping site ${name} in directory: ${siteDir}`);
     
-    const result = await runLandoCommand('lando stop', siteDir);
+    // Send immediate response with operation ID
+    res.json({ success: true, operationId });
     
-    if (result.success) {
-      res.json({ success: true, message: `Site ${name} stopped` });
-    } else {
-      console.error(`Error stopping ${name}:`, result.stderr || result.error);
-      res.status(500).json({ success: false, error: result.stderr || result.error });
+    // Start the operation asynchronously
+    try {
+      await runLandoCommandWithLogs(operationId, 'lando stop', siteDir);
+    } catch (error) {
+      console.error(`Error stopping ${name}:`, error.message);
     }
   } catch (error) {
     console.error('Error in stop endpoint:', error);
@@ -377,15 +500,18 @@ app.post('/api/sites/:name/restart', async (req, res) => {
     }
     
     const siteDir = site.dir;
+    const operationId = `restart-${name}-${Date.now()}`;
+    
     console.log(`Restarting site ${name} in directory: ${siteDir}`);
     
-    const result = await runLandoCommand('lando restart', siteDir);
+    // Send immediate response with operation ID
+    res.json({ success: true, operationId });
     
-    if (result.success) {
-      res.json({ success: true, message: `Site ${name} restarted` });
-    } else {
-      console.error(`Error restarting ${name}:`, result.stderr || result.error);
-      res.status(500).json({ success: false, error: result.stderr || result.error });
+    // Start the operation asynchronously
+    try {
+      await runLandoCommandWithLogs(operationId, 'lando restart', siteDir);
+    } catch (error) {
+      console.error(`Error restarting ${name}:`, error.message);
     }
   } catch (error) {
     console.error('Error in restart endpoint:', error);
@@ -407,18 +533,176 @@ app.post('/api/sites/:name/rebuild', async (req, res) => {
     }
     
     const siteDir = site.dir;
+    const operationId = `rebuild-${name}-${Date.now()}`;
+    
     console.log(`Rebuilding site ${name} in directory: ${siteDir}`);
     
-    const result = await runLandoCommand('lando rebuild -y', siteDir);
+    // Send immediate response with operation ID
+    res.json({ success: true, operationId });
     
-    if (result.success) {
-      res.json({ success: true, message: `Site ${name} rebuilt` });
-    } else {
-      console.error(`Error rebuilding ${name}:`, result.stderr || result.error);
-      res.status(500).json({ success: false, error: result.stderr || result.error });
+    // Start the operation asynchronously
+    try {
+      await runLandoCommandWithLogs(operationId, 'lando rebuild -y', siteDir);
+    } catch (error) {
+      console.error(`Error rebuilding ${name}:`, error.message);
     }
   } catch (error) {
     console.error('Error in rebuild endpoint:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /api/sites/:name/migrate-mysql - Safe MySQL version change with export/import
+app.post('/api/sites/:name/migrate-mysql', async (req, res) => {
+  try {
+    const { name } = req.params;
+    const { php, database, phpmyadmin } = req.body;
+    
+    // Find the site directory
+    const sites = await getLandoSites();
+    const site = sites.find(s => s.app === name);
+    
+    if (!site) {
+      return res.status(404).json({ success: false, error: `Site ${name} not found` });
+    }
+    
+    const siteDir = site.dir;
+    const operationId = `migrate-mysql-${name}-${Date.now()}`;
+    const backupFile = `backup-${Date.now()}.sql`;  // Lando adds .gz automatically
+    
+    console.log(`Migrating MySQL for ${name} to ${database}`);
+    
+    // Send immediate response with operation ID
+    res.json({ success: true, operationId });
+    
+    // Initialize log storage
+    operationLogs.set(operationId, {
+      lines: [],
+      completed: false,
+      success: null,
+      error: null
+    });
+    
+    const log = operationLogs.get(operationId);
+    
+    // Helper to run command and append output to our log
+    const runStep = async (stepMsg, command) => {
+      log.lines.push(stepMsg);
+      try {
+        const { stdout, stderr } = await execPromise(command, { cwd: siteDir });
+        if (stdout) {
+          stdout.split('\n').filter(l => l.trim()).forEach(line => log.lines.push(line));
+        }
+        if (stderr) {
+          stderr.split('\n').filter(l => l.trim()).forEach(line => log.lines.push(line));
+        }
+        return { success: true };
+      } catch (error) {
+        log.lines.push(`❌ Error: ${error.message}`);
+        throw error;
+      }
+    };
+    
+    // Start the migration asynchronously
+    (async () => {
+      try {
+        // Step 1: Export database
+        await runStep('📦 Step 1/5: Exporting database...', `lando db-export ${backupFile}`);
+        log.lines.push(`✅ Database exported to ${backupFile}`);
+        log.lines.push('');
+        
+        // Step 2: Update config
+        log.lines.push('📝 Step 2/5: Updating configuration...');
+        const landoYmlPath = path.join(siteDir, '.lando.yml');
+        let content = await fs.readFile(landoYmlPath, 'utf-8');
+        
+        // Update PHP if provided
+        if (php) {
+          if (content.includes('php:')) {
+            content = content.replace(/php:\s*['"]?[^'\n"]+['"]?/, `php: '${php}'`);
+          } else {
+            if (content.includes('webroot:')) {
+              content = content.replace(/(webroot:[^\n]+)/, `$1\n  php: '${php}'`);
+            }
+          }
+        }
+        
+        // Update database version
+        if (database) {
+          if (content.includes('database:')) {
+            content = content.replace(/database:\s*.+/, `database: ${database}`);
+          } else {
+            if (content.includes('php:')) {
+              content = content.replace(/(php:\s*['"]?[^'\n"]+['"]?)/, `$1\n  database: ${database}`);
+            } else if (content.includes('webroot:')) {
+              content = content.replace(/(webroot:[^\n]+)/, `$1\n  database: ${database}`);
+            }
+          }
+        }
+        
+        // Update phpMyAdmin
+        const hasServices = content.includes('services:');
+        const hasPhpMyAdmin = content.includes('type: phpmyadmin');
+        
+        if (phpmyadmin && !hasPhpMyAdmin) {
+          if (hasServices) {
+            content = content.replace(/services:/, `services:\n  myservice:\n    type: phpmyadmin`);
+          } else {
+            content += `\nservices:\n  myservice:\n    type: phpmyadmin\n`;
+          }
+        } else if (!phpmyadmin && hasPhpMyAdmin) {
+          content = content.replace(/services:\s*\n\s*myservice:\s*\n\s*type:\s*phpmyadmin\s*\n?/, '');
+          content = content.replace(/\nservices:\s*\n?$/, '');
+        }
+        
+        await fs.writeFile(landoYmlPath, content);
+        log.lines.push(`✅ Configuration updated to ${database}`);
+        log.lines.push('');
+        
+        // Step 3: Destroy app (removes all containers and volumes)
+        await runStep('🗑️  Step 3/6: Destroying app and removing old database...', 'lando destroy -y');
+        log.lines.push('✅ App destroyed (all old containers and data removed)');
+        log.lines.push('');
+        
+        // Step 4: Start with new MySQL version (recreates from scratch)
+        await runStep('🚀 Step 4/5: Starting app with new MySQL version...', 'lando start');
+        log.lines.push('✅ App started with new MySQL version');
+        log.lines.push('');
+        
+        // Step 5: Import database (backup file has .gz added by lando db-export)
+        const actualBackupFile = `${backupFile}.gz`;  // lando db-export added .gz
+        await runStep('📥 Step 5/5: Importing database...', `lando db-import ${actualBackupFile}`);
+        log.lines.push('✅ Database imported successfully');
+        log.lines.push('');
+        
+        // Cleanup backup file
+        log.lines.push('🧹 Cleaning up backup file...');
+        try {
+          await fs.unlink(path.join(siteDir, actualBackupFile));
+          log.lines.push('✅ Backup file removed');
+        } catch (err) {
+          // File might already be gone, that's okay
+          log.lines.push('✅ Backup cleanup complete');
+        }
+        log.lines.push('');
+        
+        log.lines.push('🎉 MySQL migration completed successfully!');
+        log.completed = true;
+        log.success = true;
+        
+      } catch (error) {
+        console.error(`Error migrating MySQL for ${name}:`, error);
+        log.lines.push('');
+        log.lines.push(`❌ Migration failed: ${error.message}`);
+        log.lines.push('⚠️  Your site may be in an incomplete state. Try running "lando rebuild -y" manually.');
+        log.completed = true;
+        log.success = false;
+        log.error = error.message;
+      }
+    })();
+    
+  } catch (error) {
+    console.error('Error in migrate-mysql endpoint:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -437,20 +721,55 @@ app.delete('/api/sites/:name', async (req, res) => {
     }
     
     const siteDir = site.dir;
+    const operationId = `destroy-${name}-${Date.now()}`;
     
-    // Destroy Lando site
-    await runLandoCommand('lando destroy -y', siteDir);
+    // Send immediate response with operation ID
+    res.json({ success: true, operationId });
     
-    // Remove Docker volumes
-    await runLandoCommand(`docker volume rm ${name}_data_database ${name}_home_appserver ${name}_home_database 2>/dev/null || true`);
-    
-    // Remove Docker network
-    await runLandoCommand(`docker network rm ${name}_default 2>/dev/null || true`);
-    
-    // Delete directory
-    await fs.rm(siteDir, { recursive: true, force: true });
-    
-    res.json({ success: true, message: `Site ${name} destroyed completely` });
+    // Start the operation asynchronously
+    (async () => {
+      try {
+        // Destroy Lando site with logs
+        await runLandoCommandWithLogs(operationId, 'lando destroy -y', siteDir);
+        
+        // Append cleanup messages to logs
+        const log = operationLogs.get(operationId);
+        if (log) {
+          log.lines.push('Removing Docker volumes...');
+        }
+        
+        // Remove Docker volumes
+        await runLandoCommand(`docker volume rm ${name}_data_database ${name}_home_appserver ${name}_home_database 2>/dev/null || true`);
+        
+        if (log) {
+          log.lines.push('Removing Docker network...');
+        }
+        
+        // Remove Docker network
+        await runLandoCommand(`docker network rm ${name}_default 2>/dev/null || true`);
+        
+        if (log) {
+          log.lines.push('Deleting site directory...');
+        }
+        
+        // Delete directory
+        await fs.rm(siteDir, { recursive: true, force: true });
+        
+        if (log) {
+          log.lines.push('Site destroyed completely!');
+          log.completed = true;
+          log.success = true;
+        }
+      } catch (error) {
+        const log = operationLogs.get(operationId);
+        if (log) {
+          log.lines.push(`Error: ${error.message}`);
+          log.completed = true;
+          log.success = false;
+          log.error = error.message;
+        }
+      }
+    })();
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -623,7 +942,17 @@ app.put('/api/sites/:name/config', async (req, res) => {
     
     // Update PHP version
     if (php) {
-      content = content.replace(/php:\s*['"]?[^'\n"]+['"]?/, `php: '${php}'`);
+      if (content.includes('php:')) {
+        // Replace existing php line
+        content = content.replace(/php:\s*['"]?[^'\n"]+['"]?/, `php: '${php}'`);
+      } else {
+        // Add php line after webroot (or at end of config section)
+        if (content.includes('webroot:')) {
+          content = content.replace(/(webroot:[^\n]+)/, `$1\n  php: '${php}'`);
+        } else if (content.includes('config:')) {
+          content = content.replace(/(config:\s*)/, `$1\n  php: '${php}'`);
+        }
+      }
     }
     
     // Update database
@@ -631,8 +960,12 @@ app.put('/api/sites/:name/config', async (req, res) => {
       if (content.includes('database:')) {
         content = content.replace(/database:\s*.+/, `database: ${database}`);
       } else {
-        // Add database line after php
-        content = content.replace(/(php:\s*['"]?[^'\n"]+['"]?)/, `$1\n  database: ${database}`);
+        // Add database line after php or webroot
+        if (content.includes('php:')) {
+          content = content.replace(/(php:\s*['"]?[^'\n"]+['"]?)/, `$1\n  database: ${database}`);
+        } else if (content.includes('webroot:')) {
+          content = content.replace(/(webroot:[^\n]+)/, `$1\n  database: ${database}`);
+        }
       }
     }
     

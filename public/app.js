@@ -2,7 +2,7 @@ const API_URL = 'http://localhost:3000/api';
 
 let currentDeleteSite = null;
 let currentSettingsSite = null;
-let activeOperation = null; // Track ongoing operations
+let activeOperations = new Map(); // Track multiple operations by operationId
 
 // DOM Elements
 const sitesContainer = document.getElementById('sitesContainer');
@@ -40,12 +40,37 @@ function setupEventListeners() {
   cancelDelete.addEventListener('click', () => hideDeleteModal());
   confirmDelete.addEventListener('click', handleConfirmDelete);
   
+  // Progress modal close button
+  const closeProgress = document.getElementById('closeProgress');
+  closeProgress.addEventListener('click', () => {
+    // Get the current operation
+    for (const [opId, opData] of activeOperations.entries()) {
+      if (!opData.minimized) {
+        minimizeOperation(opId);
+        break;
+      }
+    }
+  });
+  
   // Close modal on outside click
   createModal.addEventListener('click', (e) => {
     if (e.target === createModal) hideModal();
   });
   deleteModal.addEventListener('click', (e) => {
     if (e.target === deleteModal) hideDeleteModal();
+  });
+  
+  const progressModal = document.getElementById('progressModal');
+  progressModal.addEventListener('click', (e) => {
+    if (e.target === progressModal) {
+      // Minimize instead of close
+      for (const [opId, opData] of activeOperations.entries()) {
+        if (!opData.minimized) {
+          minimizeOperation(opId);
+          break;
+        }
+      }
+    }
   });
 }
 
@@ -65,85 +90,211 @@ function hideDeleteModal() {
   currentDeleteSite = null;
 }
 
-// Operation Progress Modal
-function showOperationProgress(operation, siteName) {
-  activeOperation = { operation, siteName };
+// Operation Progress - Minimized Cards
+function showOperationProgress(operation, siteName, operationId = null) {
+  // Show the progress modal
+  const progressModal = document.getElementById('progressModal');
+  const progressTitle = document.getElementById('progressTitle');
+  const terminalOutput = document.getElementById('terminalOutput');
   
-  // Create overlay if it doesn't exist
-  let overlay = document.getElementById('operationOverlay');
-  if (!overlay) {
-    overlay = document.createElement('div');
-    overlay.id = 'operationOverlay';
-    overlay.className = 'operation-overlay';
-    overlay.innerHTML = `
-      <div class="operation-modal">
-        <div class="operation-spinner"></div>
-        <h3 id="operationTitle"></h3>
-        <p id="operationMessage"></p>
-      </div>
-    `;
-    document.body.appendChild(overlay);
+  const operationLabels = {
+    creating: 'Creating',
+    starting: 'Starting',
+    stopping: 'Stopping',
+    restarting: 'Restarting',
+    rebuilding: 'Rebuilding',
+    migrating: 'Migrating',
+    destroying: 'Destroying',
+    updating: 'Updating'
+  };
+  
+  const label = operationLabels[operation] || operation;
+  progressTitle.textContent = `${label} ${siteName}`;
+  terminalOutput.innerHTML = '<div class="log-line">Starting operation...</div>';
+  progressModal.classList.remove('hidden');
+  
+  // Track this operation
+  const opData = {
+    operation,
+    siteName,
+    operationId,
+    pollInterval: null,
+    minimized: false
+  };
+  activeOperations.set(operationId, opData);
+  
+  // Start polling for logs if we have an operation ID
+  if (operationId) {
+    startLogPolling(operationId);
+  }
+}
+
+function minimizeOperation(operationId) {
+  const opData = activeOperations.get(operationId);
+  if (!opData || opData.minimized) return;
+  
+  // Hide the modal
+  document.getElementById('progressModal').classList.add('hidden');
+  
+  // Create operations container if it doesn't exist
+  let container = document.getElementById('operationsContainer');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'operationsContainer';
+    container.className = 'operations-container';
+    document.body.appendChild(container);
   }
   
-  const title = document.getElementById('operationTitle');
-  const message = document.getElementById('operationMessage');
+  // Create minimized card for this operation
+  const card = document.createElement('div');
+  card.id = `op-${operationId}`;
+  card.className = 'operation-card';
   
-  const messages = {
-    starting: {
-      title: `Starting ${siteName}`,
-      message: 'This may take 30-60 seconds...'
-    },
-    stopping: {
-      title: `Stopping ${siteName}`,
-      message: 'Stopping containers...'
-    },
-    restarting: {
-      title: `Restarting ${siteName}`,
-      message: 'This may take 30-60 seconds...'
-    },
-    rebuilding: {
-      title: `Rebuilding ${siteName}`,
-      message: 'This may take several minutes. Please wait...'
-    },
-    destroying: {
-      title: `Destroying ${siteName}`,
-      message: 'Removing site and cleaning up...'
-    },
-    updating: {
-      title: `Updating ${siteName}`,
-      message: 'Updating configuration and rebuilding...'
+  const operationLabels = {
+    creating: 'Creating',
+    starting: 'Starting',
+    stopping: 'Stopping',
+    restarting: 'Restarting',
+    rebuilding: 'Rebuilding',
+    migrating: 'Migrating',
+    destroying: 'Destroying',
+    updating: 'Updating'
+  };
+  
+  const label = operationLabels[opData.operation] || opData.operation;
+  
+  card.innerHTML = `
+    <div class="operation-card-spinner"></div>
+    <div class="operation-card-content">
+      <div class="operation-card-title">${opData.siteName}</div>
+      <div class="operation-card-status">${label}...</div>
+    </div>
+  `;
+  
+  // Click to re-open modal
+  card.addEventListener('click', () => {
+    restoreOperation(operationId);
+  });
+  
+  container.appendChild(card);
+  opData.card = card;
+  opData.minimized = true;
+}
+
+function restoreOperation(operationId) {
+  const opData = activeOperations.get(operationId);
+  if (!opData) return;
+  
+  // Remove the minimized card
+  if (opData.card) {
+    opData.card.remove();
+  }
+  
+  // Show the modal again
+  const progressModal = document.getElementById('progressModal');
+  const progressTitle = document.getElementById('progressTitle');
+  
+  const operationLabels = {
+    creating: 'Creating',
+    starting: 'Starting',
+    stopping: 'Stopping',
+    restarting: 'Restarting',
+    rebuilding: 'Rebuilding',
+    migrating: 'Migrating',
+    destroying: 'Destroying',
+    updating: 'Updating'
+  };
+  
+  const label = operationLabels[opData.operation] || opData.operation;
+  progressTitle.textContent = `${label} ${opData.siteName}`;
+  progressModal.classList.remove('hidden');
+  
+  opData.minimized = false;
+}
+
+function startLogPolling(operationId) {
+  const opData = activeOperations.get(operationId);
+  if (!opData) return;
+  
+  const pollLogs = async () => {
+    try {
+      const response = await fetch(`${API_URL}/operations/${operationId}/logs`);
+      const data = await response.json();
+      
+      if (data.success && data.logs) {
+        // Update terminal output if modal is visible
+        if (!opData.minimized) {
+          const terminalOutput = document.getElementById('terminalOutput');
+          terminalOutput.innerHTML = data.logs
+            .map(line => `<div class="log-line">${escapeHtml(line)}</div>`)
+            .join('');
+          // Auto-scroll to bottom
+          terminalOutput.scrollTop = terminalOutput.scrollHeight;
+        }
+        
+        // Check if operation is complete
+        if (data.completed) {
+          clearInterval(opData.pollInterval);
+          
+          if (data.operationSuccess) {
+            showToast(`${opData.siteName} ${opData.operation} completed`, 'success');
+            
+            // If minimized, update card
+            if (opData.minimized && opData.card) {
+              const statusEl = opData.card.querySelector('.operation-card-status');
+              statusEl.textContent = 'Complete ✓';
+              opData.card.classList.add('success');
+              
+              // Remove spinner
+              const spinner = opData.card.querySelector('.operation-card-spinner');
+              if (spinner) spinner.remove();
+              
+              // Remove card after 3 seconds
+              setTimeout(() => {
+                opData.card.remove();
+                activeOperations.delete(operationId);
+              }, 3000);
+            } else {
+              // Close modal and show success
+              document.getElementById('progressModal').classList.add('hidden');
+              activeOperations.delete(operationId);
+            }
+            
+            loadSites(); // Refresh sites list
+          } else {
+            showToast(`${opData.siteName} ${opData.operation} failed: ${data.error || 'Unknown error'}`, 'error');
+            
+            // If minimized, update card
+            if (opData.minimized && opData.card) {
+              const statusEl = opData.card.querySelector('.operation-card-status');
+              statusEl.textContent = 'Failed ✗';
+              opData.card.classList.add('error');
+              
+              // Remove spinner
+              const spinner = opData.card.querySelector('.operation-card-spinner');
+              if (spinner) spinner.remove();
+              
+              // Keep card visible so user can click to see logs
+            } else {
+              // Keep modal open so user can see error logs
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error polling logs:', error);
     }
   };
   
-  const config = messages[operation] || { title: operation, message: 'Processing...' };
-  title.textContent = config.title;
-  message.textContent = config.message;
-  
-  overlay.classList.remove('hidden');
-  
-  // Disable all action buttons
-  disableAllActions();
+  // Poll every 500ms
+  opData.pollInterval = setInterval(pollLogs, 500);
+  pollLogs(); // Call immediately
 }
 
-function hideOperationProgress() {
-  const overlay = document.getElementById('operationOverlay');
-  if (overlay) {
-    overlay.classList.add('hidden');
-  }
-  activeOperation = null;
-  
-  // Re-enable all action buttons
-  enableAllActions();
-}
-
-function disableAllActions() {
-  const buttons = document.querySelectorAll('.site-actions button, .settings-btn');
-  buttons.forEach(btn => btn.disabled = true);
-}
-
-function enableAllActions() {
-  const buttons = document.querySelectorAll('.site-actions button, .settings-btn');
-  buttons.forEach(btn => btn.disabled = false);
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
 }
 
 async function loadSites() {
@@ -225,19 +376,25 @@ async function handleCreateSite(e) {
   e.preventDefault();
   
   const formData = new FormData(createForm);
+  
+  // Sanitize site name to match Lando conventions (lowercase, hyphens)
+  const rawName = formData.get('name');
+  const sanitizedName = rawName
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, '-')           // spaces to hyphens
+    .replace(/[^a-z0-9-]/g, '')     // remove non-alphanumeric except hyphens
+    .replace(/-+/g, '-')            // collapse multiple hyphens
+    .replace(/^-|-$/g, '');         // trim leading/trailing hyphens
+  
   const data = {
-    name: formData.get('name'),
+    name: sanitizedName,
     recipe: formData.get('recipe'),
     php: formData.get('php'),
     database: formData.get('database') || undefined,
     webroot: formData.get('webroot') || '.',
     phpmyadmin: formData.get('phpmyadmin') === 'on'
   };
-  
-  // Show progress
-  createForm.classList.add('hidden');
-  createProgress.classList.remove('hidden');
-  progressText.textContent = 'Creating site... This may take a few minutes.';
   
   try {
     const response = await fetch(`${API_URL}/sites`, {
@@ -248,28 +405,20 @@ async function handleCreateSite(e) {
     
     const result = await response.json();
     
-    if (result.success) {
-      showToast(`Site ${data.name} created successfully!`, 'success');
+    if (result.success && result.operationId) {
+      // Hide the create modal
       hideModal();
-      loadSites();
+      // Show progress modal with terminal output
+      showOperationProgress('creating', data.name, result.operationId);
     } else {
       throw new Error(result.error || 'Failed to create site');
     }
   } catch (error) {
     showToast(error.message, 'error');
-    createForm.classList.remove('hidden');
-    createProgress.classList.add('hidden');
   }
 }
 
 async function startSite(name) {
-  if (activeOperation) {
-    showToast('Please wait for the current operation to finish', 'error');
-    return;
-  }
-  
-  showOperationProgress('starting', name);
-  
   try {
     const response = await fetch(`${API_URL}/sites/${name}/start`, {
       method: 'POST'
@@ -277,42 +426,27 @@ async function startSite(name) {
     
     const result = await response.json();
     
-    if (result.success) {
-      showToast(`${name} started successfully`, 'success');
-      await loadSites();
-    } else {
-      // Check if rebuild is needed
-      if (result.needsRebuild) {
-        hideOperationProgress();
-        const shouldRebuild = confirm(
-          `⚠️ ${name} has a Docker network error and needs to be rebuilt.\n\n` +
-          `Click OK to rebuild now (this will take a few minutes), or Cancel to do it manually.`
-        );
-        
-        if (shouldRebuild) {
-          await rebuildSite(name);
-          return;
-        }
-      } else {
-        throw new Error(result.error);
+    if (result.success && result.operationId) {
+      // Show progress modal with terminal output
+      showOperationProgress('starting', name, result.operationId);
+    } else if (result.needsRebuild) {
+      const shouldRebuild = confirm(
+        `⚠️ ${name} has a Docker network error and needs to be rebuilt.\n\n` +
+        `Click OK to rebuild now (this will take a few minutes), or Cancel to do it manually.`
+      );
+      
+      if (shouldRebuild) {
+        await rebuildSite(name);
       }
+    } else {
+      throw new Error(result.error || 'Failed to start site');
     }
   } catch (error) {
     showToast(`Failed to start ${name}: ${error.message}`, 'error');
-    await loadSites(); // Refresh in case state changed
-  } finally {
-    hideOperationProgress();
   }
 }
 
 async function stopSite(name) {
-  if (activeOperation) {
-    showToast('Please wait for the current operation to finish', 'error');
-    return;
-  }
-  
-  showOperationProgress('stopping', name);
-  
   try {
     const response = await fetch(`${API_URL}/sites/${name}/stop`, {
       method: 'POST'
@@ -320,27 +454,17 @@ async function stopSite(name) {
     
     const result = await response.json();
     
-    if (result.success) {
-      showToast(`${name} stopped successfully`, 'success');
-      await loadSites();
+    if (result.success && result.operationId) {
+      showOperationProgress('stopping', name, result.operationId);
     } else {
-      throw new Error(result.error);
+      throw new Error(result.error || 'Failed to stop site');
     }
   } catch (error) {
     showToast(`Failed to stop ${name}: ${error.message}`, 'error');
-  } finally {
-    hideOperationProgress();
   }
 }
 
 async function restartSite(name) {
-  if (activeOperation) {
-    showToast('Please wait for the current operation to finish', 'error');
-    return;
-  }
-  
-  showOperationProgress('restarting', name);
-  
   try {
     const response = await fetch(`${API_URL}/sites/${name}/restart`, {
       method: 'POST'
@@ -348,27 +472,17 @@ async function restartSite(name) {
     
     const result = await response.json();
     
-    if (result.success) {
-      showToast(`${name} restarted successfully`, 'success');
-      await loadSites();
+    if (result.success && result.operationId) {
+      showOperationProgress('restarting', name, result.operationId);
     } else {
-      throw new Error(result.error);
+      throw new Error(result.error || 'Failed to restart site');
     }
   } catch (error) {
     showToast(`Failed to restart ${name}: ${error.message}`, 'error');
-  } finally {
-    hideOperationProgress();
   }
 }
 
 async function rebuildSite(name) {
-  if (activeOperation) {
-    showToast('Please wait for the current operation to finish', 'error');
-    return;
-  }
-  
-  showOperationProgress('rebuilding', name);
-  
   try {
     const response = await fetch(`${API_URL}/sites/${name}/rebuild`, {
       method: 'POST'
@@ -376,16 +490,13 @@ async function rebuildSite(name) {
     
     const result = await response.json();
     
-    if (result.success) {
-      showToast(`${name} rebuilt successfully`, 'success');
-      await loadSites();
+    if (result.success && result.operationId) {
+      showOperationProgress('rebuilding', name, result.operationId);
     } else {
-      throw new Error(result.error);
+      throw new Error(result.error || 'Failed to rebuild site');
     }
   } catch (error) {
     showToast(`Failed to rebuild ${name}: ${error.message}`, 'error');
-  } finally {
-    hideOperationProgress();
   }
 }
 
@@ -398,15 +509,8 @@ function confirmDeleteSite(name) {
 async function handleConfirmDelete() {
   if (!currentDeleteSite) return;
   
-  if (activeOperation) {
-    showToast('Please wait for the current operation to finish', 'error');
-    return;
-  }
-  
   const name = currentDeleteSite;
   hideDeleteModal();
-  
-  showOperationProgress('destroying', name);
   
   try {
     const response = await fetch(`${API_URL}/sites/${name}`, {
@@ -415,16 +519,13 @@ async function handleConfirmDelete() {
     
     const result = await response.json();
     
-    if (result.success) {
-      showToast(`${name} destroyed completely`, 'success');
-      await loadSites();
+    if (result.success && result.operationId) {
+      showOperationProgress('destroying', name, result.operationId);
     } else {
-      throw new Error(result.error);
+      throw new Error(result.error || 'Failed to destroy site');
     }
   } catch (error) {
     showToast(`Failed to destroy ${name}: ${error.message}`, 'error');
-  } finally {
-    hideOperationProgress();
   }
 }
 
@@ -440,6 +541,8 @@ function showToast(message, type = 'info') {
 }
 
 // Site Settings Modal Functions
+let originalDatabaseVersion = null;
+
 async function openSiteSettings(siteName) {
   console.log('openSiteSettings called with:', siteName);
   
@@ -467,6 +570,9 @@ async function openSiteSettings(siteName) {
       document.getElementById('settingsDatabase').value = result.config.database || 'mysql:8.0';
       document.getElementById('settingsPhpmyadmin').checked = result.config.hasPhpMyAdmin || false;
       
+      // Store original database version for comparison
+      originalDatabaseVersion = result.config.database || 'mysql:8.0';
+      
       settingsModal.classList.remove('hidden');
     } else {
       throw new Error(result.error);
@@ -479,6 +585,7 @@ async function openSiteSettings(siteName) {
 function hideSettingsModal() {
   settingsModal.classList.add('hidden');
   currentSettingsSite = null;
+  originalDatabaseVersion = null;
 }
 
 async function handleSaveSettings(e) {
@@ -492,11 +599,6 @@ async function handleSaveSettings(e) {
     return;
   }
   
-  if (activeOperation) {
-    showToast('Please wait for the current operation to finish', 'error');
-    return;
-  }
-  
   const settings = {
     php: document.getElementById('settingsPhp').value,
     database: document.getElementById('settingsDatabase').value,
@@ -505,10 +607,22 @@ async function handleSaveSettings(e) {
   
   console.log('Saving settings:', settings, 'for site:', currentSettingsSite);
   
+  // Check if database version changed
+  if (settings.database !== originalDatabaseVersion) {
+    console.log(`Database version changed from ${originalDatabaseVersion} to ${settings.database}`);
+    // Store settings for later and show warning modal
+    window.pendingMysqlMigration = {
+      siteName: currentSettingsSite,
+      settings: settings
+    };
+    hideSettingsModal();
+    document.getElementById('mysqlWarningModal').classList.remove('hidden');
+    return;
+  }
+  
+  // Normal save (no MySQL change)
   const siteToUpdate = currentSettingsSite;
   hideSettingsModal();
-  
-  showOperationProgress('updating', siteToUpdate);
   
   try {
     const url = `${API_URL}/sites/${encodeURIComponent(siteToUpdate)}/config`;
@@ -522,16 +636,15 @@ async function handleSaveSettings(e) {
     const result = await response.json();
     
     if (result.success) {
-      // Now rebuild the site
+      // Now rebuild the site with streaming
       const rebuildResponse = await fetch(`${API_URL}/sites/${siteToUpdate}/rebuild`, {
         method: 'POST'
       });
       
       const rebuildResult = await rebuildResponse.json();
       
-      if (rebuildResult.success) {
-        showToast(`${siteToUpdate} updated and rebuilt successfully`, 'success');
-        await loadSites();
+            if (rebuildResult.success && rebuildResult.operationId) {
+        showOperationProgress('updating', siteToUpdate, rebuildResult.operationId);
       } else {
         throw new Error(rebuildResult.error || 'Rebuild failed');
       }
@@ -540,8 +653,6 @@ async function handleSaveSettings(e) {
     }
   } catch (error) {
     showToast(`Failed to update settings: ${error.message}`, 'error');
-  } finally {
-    hideOperationProgress();
   }
 }
 
@@ -551,6 +662,39 @@ cancelSettings.addEventListener('click', () => hideSettingsModal());
 settingsForm.addEventListener('submit', handleSaveSettings);
 settingsModal.addEventListener('click', (e) => {
   if (e.target === settingsModal) hideSettingsModal();
+});
+
+// MySQL Warning Modal handlers
+document.getElementById('cancelMysqlMigration').addEventListener('click', () => {
+  document.getElementById('mysqlWarningModal').classList.add('hidden');
+  window.pendingMysqlMigration = null;
+});
+
+document.getElementById('confirmMysqlMigration').addEventListener('click', async () => {
+  const migration = window.pendingMysqlMigration;
+  if (!migration) return;
+  
+  document.getElementById('mysqlWarningModal').classList.add('hidden');
+  
+  try {
+    const response = await fetch(`${API_URL}/sites/${migration.siteName}/migrate-mysql`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(migration.settings)
+    });
+    
+    const result = await response.json();
+    
+    if (result.success && result.operationId) {
+      showOperationProgress('migrating', migration.siteName, result.operationId);
+    } else {
+      throw new Error(result.error || 'Migration failed');
+    }
+  } catch (error) {
+    showToast(`Failed to migrate MySQL: ${error.message}`, 'error');
+  } finally {
+    window.pendingMysqlMigration = null;
+  }
 });
 
 // Delegate settings button clicks (since buttons are dynamically added)
