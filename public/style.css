@@ -229,9 +229,22 @@ h1 {
   border-bottom: 1px solid var(--border);
 }
 
+.modal-header.delete-header {
+  justify-content: center;
+  border-bottom: 1px solid var(--border);
+}
+
 .modal-header h2 {
   font-size: 1.5rem;
   color: var(--dark);
+}
+
+.modal-body {
+  padding: 1.5rem;
+}
+
+.modal-body p {
+  margin-bottom: 1rem;
 }
 
 .close-btn {
@@ -351,6 +364,10 @@ small {
   justify-content: flex-end;
   padding: 1.5rem;
   border-top: 1px solid var(--border);
+}
+
+.form-actions.delete-actions {
+  justify-content: center;
 }
 
 .warning {

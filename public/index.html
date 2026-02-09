@@ -116,12 +116,14 @@
   <!-- Confirm Delete Modal -->
   <div id="deleteModal" class="modal hidden">
     <div class="modal-content modal-small">
-      <div class="modal-header">
+      <div class="modal-header delete-header">
         <h2>⚠️ Confirm Delete</h2>
       </div>
-      <p>Are you sure you want to destroy <strong id="deleteSiteName"></strong>?</p>
-      <p class="warning">This will delete all files, databases, and Docker volumes. This cannot be undone.</p>
-      <div class="form-actions">
+      <div class="modal-body">
+        <p>Are you sure you want to destroy <strong id="deleteSiteName"></strong>?</p>
+        <div class="warning">This will delete all files, databases, and Docker volumes. This cannot be undone.</div>
+      </div>
+      <div class="form-actions delete-actions">
         <button type="button" class="btn btn-secondary" id="cancelDelete">Cancel</button>
         <button type="button" class="btn btn-danger" id="confirmDelete">Delete Forever</button>
       </div>
