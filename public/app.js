@@ -92,10 +92,14 @@ function showOperationProgress(operation, siteName, operationId = null) {
   const message = document.getElementById('operationMessage');
   const terminalLines = document.getElementById('terminalLines');
   
-  // Clear previous logs
+    // Clear previous logs
   terminalLines.innerHTML = '';
   
   const messages = {
+    creating: {
+      title: `Creating ${siteName}`,
+      message: 'This may take several minutes...'
+    },
     starting: {
       title: `Starting ${siteName}`,
       message: 'This may take 30-60 seconds...'
@@ -302,6 +306,11 @@ function showEmptyState() {
 async function handleCreateSite(e) {
   e.preventDefault();
   
+  if (activeOperation) {
+    showToast('Please wait for the current operation to finish', 'error');
+    return;
+  }
+  
   const formData = new FormData(createForm);
   const data = {
     name: formData.get('name'),
@@ -312,11 +321,6 @@ async function handleCreateSite(e) {
     phpmyadmin: formData.get('phpmyadmin') === 'on'
   };
   
-  // Show progress
-  createForm.classList.add('hidden');
-  createProgress.classList.remove('hidden');
-  progressText.textContent = 'Creating site... This may take a few minutes.';
-  
   try {
     const response = await fetch(`${API_URL}/sites`, {
       method: 'POST',
@@ -326,17 +330,16 @@ async function handleCreateSite(e) {
     
     const result = await response.json();
     
-    if (result.success) {
-      showToast(`Site ${data.name} created successfully!`, 'success');
+    if (result.success && result.operationId) {
+      // Hide the create modal
       hideModal();
-      loadSites();
+      // Show progress modal with terminal output
+      showOperationProgress('creating', data.name, result.operationId);
     } else {
       throw new Error(result.error || 'Failed to create site');
     }
   } catch (error) {
     showToast(error.message, 'error');
-    createForm.classList.remove('hidden');
-    createProgress.classList.add('hidden');
   }
 }
 

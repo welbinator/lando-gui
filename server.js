@@ -285,72 +285,92 @@ app.post('/api/sites', async (req, res) => {
       // Directory doesn't exist, good to proceed
     }
 
-    // Create directory
-    await fs.mkdir(siteDir, { recursive: true });
+    const operationId = `create-${name}-${Date.now()}`;
+    
+    // Send immediate response with operation ID
+    res.json({ success: true, operationId });
 
-    // Download WordPress if recipe is wordpress
-    if (recipe === 'wordpress') {
-      await runLandoCommand('wget https://wordpress.org/latest.tar.gz', siteDir);
-      await runLandoCommand('tar -xzf latest.tar.gz && mv wordpress/* . && rm -rf wordpress latest.tar.gz', siteDir);
-    }
+    // Start the operation asynchronously
+    (async () => {
+      const log = operationLogs.get(operationId) || { lines: [], completed: false, success: null, error: null };
+      operationLogs.set(operationId, log);
 
-    // Create .lando.yml
-    const landoConfig = {
-      name: name,
-      recipe: recipe,
-      config: {
-        webroot: webroot || '.',
-        php: php || '8.1'
-      }
-    };
+      try {
+        // Create directory
+        log.lines.push(`Creating directory: ${siteDir}`);
+        await fs.mkdir(siteDir, { recursive: true });
 
-    if (database) {
-      landoConfig.config.database = database;
-    }
+        // Download WordPress if recipe is wordpress
+        if (recipe === 'wordpress') {
+          log.lines.push('Downloading WordPress...');
+          await runLandoCommand('wget https://wordpress.org/latest.tar.gz', siteDir);
+          
+          log.lines.push('Extracting WordPress files...');
+          await runLandoCommand('tar -xzf latest.tar.gz && mv wordpress/* . && rm -rf wordpress latest.tar.gz', siteDir);
+        }
 
-    let yamlContent = `name: ${landoConfig.name}
+        // Create .lando.yml
+        log.lines.push('Creating .lando.yml configuration...');
+        const landoConfig = {
+          name: name,
+          recipe: recipe,
+          config: {
+            webroot: webroot || '.',
+            php: php || '8.1'
+          }
+        };
+
+        if (database) {
+          landoConfig.config.database = database;
+        }
+
+        let yamlContent = `name: ${landoConfig.name}
 recipe: ${landoConfig.recipe}
 config:
   webroot: ${landoConfig.config.webroot}
   php: '${landoConfig.config.php}'${database ? `\n  database: ${database}` : ''}
 `;
 
-    // Add phpMyAdmin service if requested
-    if (phpmyadmin) {
-      yamlContent += `\nservices:\n  myservice:\n    type: phpmyadmin\n`;
-    }
+        // Add phpMyAdmin service if requested
+        if (phpmyadmin) {
+          yamlContent += `\nservices:\n  myservice:\n    type: phpmyadmin\n`;
+        }
 
-    await fs.writeFile(path.join(siteDir, '.lando.yml'), yamlContent);
+        await fs.writeFile(path.join(siteDir, '.lando.yml'), yamlContent);
 
-    // Start Lando
-    const startResult = await runLandoCommand('lando start', siteDir);
+        // Start Lando with streaming output
+        log.lines.push('Starting Lando (this may take a minute)...');
+        await runLandoCommandWithLogs(operationId, 'lando start', siteDir);
 
-    if (!startResult.success) {
-      return res.status(500).json({ 
-        success: false, 
-        error: 'Failed to start Lando',
-        details: startResult.stderr || startResult.error
-      });
-    }
+        // If WordPress, create wp-config and install
+        if (recipe === 'wordpress') {
+          log.lines.push('Configuring WordPress database...');
+          await runLandoCommand(
+            'lando wp config create --dbname=wordpress --dbuser=wordpress --dbpass=wordpress --dbhost=database --skip-check',
+            siteDir
+          );
+          
+          log.lines.push('Installing WordPress...');
+          await runLandoCommand(
+            `lando wp core install --url=https://${name}.lndo.site --title="${name}'s Site" --admin_user=james --admin_password=pepsidude --admin_email=james.welbes@gmail.com`,
+            siteDir
+          );
+          
+          log.lines.push(`Site ready at: https://${name}.lndo.site`);
+          log.lines.push('WordPress login: james / pepsidude');
+        }
 
-    // If WordPress, create wp-config and install
-    if (recipe === 'wordpress') {
-      await runLandoCommand(
-        'lando wp config create --dbname=wordpress --dbuser=wordpress --dbpass=wordpress --dbhost=database --skip-check',
-        siteDir
-      );
-      
-      await runLandoCommand(
-        `lando wp core install --url=https://${name}.lndo.site --title="${name}'s Site" --admin_user=james --admin_password=pepsidude --admin_email=james.welbes@gmail.com`,
-        siteDir
-      );
-    }
+        log.lines.push('✅ Site created successfully!');
+        log.completed = true;
+        log.success = true;
 
-    res.json({ 
-      success: true, 
-      message: `Site ${name} created successfully`,
-      url: `https://${name}.lndo.site`
-    });
+      } catch (error) {
+        log.lines.push(`❌ Error: ${error.message}`);
+        log.completed = true;
+        log.success = false;
+        log.error = error.message;
+      }
+    })();
 
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
