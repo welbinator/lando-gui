@@ -17,9 +17,28 @@
     .setup-header {
       text-align: center;
       margin-bottom: 3rem;
+      position: relative;
     }
     .setup-header h1 {
       margin-bottom: 0.5rem;
+    }
+    .close-btn {
+      position: absolute;
+      top: 0;
+      right: 0;
+      background: none;
+      border: none;
+      font-size: 2rem;
+      color: #999;
+      cursor: pointer;
+      padding: 0;
+      width: 2rem;
+      height: 2rem;
+      line-height: 1;
+      transition: color 0.2s;
+    }
+    .close-btn:hover {
+      color: #333;
     }
     .setup-steps {
       margin-bottom: 2rem;
@@ -52,6 +71,7 @@
 <body>
   <div class="setup-container">
     <div class="setup-header">
+      <button class="close-btn" onclick="window.location.href='/'" title="Close">&times;</button>
       <h1>🦙 Welcome to Lando GUI!</h1>
       <p>Let's get you set up. We'll try to detect your settings automatically.</p>
     </div>
@@ -102,13 +122,42 @@
     </div>
 
     <div class="form-actions">
-      <button class="btn btn-secondary" onclick="detectSettings()">Re-detect</button>
-      <button class="btn btn-primary" onclick="saveSetup()">Complete Setup</button>
+      <button class="btn btn-secondary" onclick="window.location.href='/'">Cancel</button>
+      <button class="btn btn-primary" onclick="saveSetup()">Save Settings</button>
     </div>
   </div>
 
   <script>
     const API_URL = 'http://localhost:3000/api';
+
+    async function loadCurrentConfig() {
+      try {
+        const response = await fetch(`${API_URL}/config`);
+        const data = await response.json();
+
+        if (data.success && data.config) {
+          const { config } = data;
+          
+          // Load Lando path and sites directory
+          document.getElementById('landoPath').value = config.landoPath || 'lando';
+          document.getElementById('sitesDirectory').value = config.sitesDirectory || '';
+          
+          // Load WordPress defaults
+          if (config.wordpress) {
+            document.getElementById('wpUser').value = config.wordpress.adminUser || 'admin';
+            document.getElementById('wpPassword').value = config.wordpress.adminPassword || 'admin';
+            document.getElementById('wpEmail').value = config.wordpress.adminEmail || 'admin@example.com';
+          }
+          
+          // Run detection to validate paths
+          await detectSettings();
+        }
+      } catch (error) {
+        console.error('Failed to load config:', error);
+        // If config doesn't exist yet, run detection
+        await detectSettings();
+      }
+    }
 
     async function detectSettings() {
       try {
@@ -118,8 +167,19 @@
         if (data.success) {
           const { detected } = data;
 
-          // Lando
-          document.getElementById('landoPath').value = detected.landoPath;
+          // Only update fields if they're currently empty
+          const landoPathInput = document.getElementById('landoPath');
+          const sitesDirInput = document.getElementById('sitesDirectory');
+          
+          if (!landoPathInput.value) {
+            landoPathInput.value = detected.landoPath;
+          }
+          
+          if (!sitesDirInput.value) {
+            sitesDirInput.value = detected.sitesDirectory;
+          }
+
+          // Show validation status for current values
           if (detected.landoValid) {
             document.getElementById('landoDetected').classList.remove('hidden');
             document.getElementById('detectedLandoPath').textContent = detected.landoPath;
@@ -129,7 +189,6 @@
           }
 
           // Sites directory
-          document.getElementById('sitesDirectory').value = detected.sitesDirectory;
           if (detected.sitesDirectoryValid) {
             document.getElementById('sitesDetected').classList.remove('hidden');
             document.getElementById('detectedSitesDir').textContent = detected.sitesDirectory;
@@ -175,8 +234,8 @@
       }
     }
 
-    // Auto-detect on load
-    detectSettings();
+    // Load current config on page load
+    loadCurrentConfig();
   </script>
 </body>
 </html>
