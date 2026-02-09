@@ -363,11 +363,15 @@ recipe: ${landoConfig.recipe}
 config:
   webroot: ${landoConfig.config.webroot}
   php: '${landoConfig.config.php}'${database ? `\n  database: ${database}` : ''}
+
+services:
+  appserver:
+    scanner: false
 `;
 
       // Add phpMyAdmin service if requested
       if (phpmyadmin) {
-        yamlContent += `\nservices:\n  myservice:\n    type: phpmyadmin\n`;
+        yamlContent += `  myservice:\n    type: phpmyadmin\n`;
       }
 
       await fs.writeFile(path.join(siteDir, '.lando.yml'), yamlContent);
