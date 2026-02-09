@@ -568,7 +568,7 @@ app.post('/api/sites/:name/migrate-mysql', async (req, res) => {
     
     const siteDir = site.dir;
     const operationId = `migrate-mysql-${name}-${Date.now()}`;
-    const backupFile = `backup-${Date.now()}.sql.gz`;  // Lando exports as .gz by default
+    const backupFile = `backup-${Date.now()}.sql`;  // Lando adds .gz automatically
     
     console.log(`Migrating MySQL for ${name} to ${database}`);
     
