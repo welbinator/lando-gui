@@ -2,7 +2,7 @@ const API_URL = 'http://localhost:3000/api';
 
 let currentDeleteSite = null;
 let currentSettingsSite = null;
-let activeOperation = null; // Track ongoing operations
+let activeOperations = new Map(); // Track multiple operations by operationId
 
 // DOM Elements
 const sitesContainer = document.getElementById('sitesContainer');
@@ -65,80 +65,54 @@ function hideDeleteModal() {
   currentDeleteSite = null;
 }
 
-// Operation Progress Modal
+// Operation Progress - Minimized Cards
 function showOperationProgress(operation, siteName, operationId = null) {
-  activeOperation = { operation, siteName, operationId, pollInterval: null };
-  
-  // Create overlay if it doesn't exist
-  let overlay = document.getElementById('operationOverlay');
-  if (!overlay) {
-    overlay = document.createElement('div');
-    overlay.id = 'operationOverlay';
-    overlay.className = 'operation-overlay';
-    overlay.innerHTML = `
-      <div class="operation-modal">
-        <button class="close-operation-btn" onclick="closeOperationModal()" title="Close (operation continues in background)">&times;</button>
-        <div class="operation-spinner"></div>
-        <h3 id="operationTitle"></h3>
-        <p id="operationMessage"></p>
-        <div id="terminalOutput" class="terminal-output">
-          <div id="terminalLines"></div>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(overlay);
+  // Create operations container if it doesn't exist
+  let container = document.getElementById('operationsContainer');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'operationsContainer';
+    container.className = 'operations-container';
+    document.body.appendChild(container);
   }
   
-  const title = document.getElementById('operationTitle');
-  const message = document.getElementById('operationMessage');
-  const terminalLines = document.getElementById('terminalLines');
+  // Create minimized card for this operation
+  const card = document.createElement('div');
+  card.id = `op-${operationId}`;
+  card.className = 'operation-card';
   
-    // Clear previous logs
-  terminalLines.innerHTML = '';
-  
-  const messages = {
-    creating: {
-      title: `Creating ${siteName}`,
-      message: 'This may take several minutes...'
-    },
-    starting: {
-      title: `Starting ${siteName}`,
-      message: 'This may take 30-60 seconds...'
-    },
-    stopping: {
-      title: `Stopping ${siteName}`,
-      message: 'Stopping containers...'
-    },
-    restarting: {
-      title: `Restarting ${siteName}`,
-      message: 'This may take 30-60 seconds...'
-    },
-    rebuilding: {
-      title: `Rebuilding ${siteName}`,
-      message: 'This may take several minutes. Please wait...'
-    },
-    migrating: {
-      title: `Migrating MySQL for ${siteName}`,
-      message: 'Exporting, updating config, and reimporting database. This may take several minutes...'
-    },
-    destroying: {
-      title: `Destroying ${siteName}`,
-      message: 'Removing site and cleaning up...'
-    },
-    updating: {
-      title: `Updating ${siteName}`,
-      message: 'Updating configuration and rebuilding...'
-    }
+  const operationLabels = {
+    creating: 'Creating',
+    starting: 'Starting',
+    stopping: 'Stopping',
+    restarting: 'Restarting',
+    rebuilding: 'Rebuilding',
+    migrating: 'Migrating',
+    destroying: 'Destroying',
+    updating: 'Updating'
   };
   
-  const config = messages[operation] || { title: operation, message: 'Processing...' };
-  title.textContent = config.title;
-  message.textContent = config.message;
+  const label = operationLabels[operation] || operation;
   
-  overlay.classList.remove('hidden');
+  card.innerHTML = `
+    <div class="operation-card-spinner"></div>
+    <div class="operation-card-content">
+      <div class="operation-card-title">${siteName}</div>
+      <div class="operation-card-status">${label}...</div>
+    </div>
+  `;
   
-  // Disable all action buttons
-  disableAllActions();
+  container.appendChild(card);
+  
+  // Track this operation
+  const opData = {
+    operation,
+    siteName,
+    operationId,
+    pollInterval: null,
+    card
+  };
+  activeOperations.set(operationId, opData);
   
   // Start polling for logs if we have an operation ID
   if (operationId) {
@@ -147,8 +121,8 @@ function showOperationProgress(operation, siteName, operationId = null) {
 }
 
 function startLogPolling(operationId) {
-  let lastLineCount = 0;
-  const MAX_LINES = 200; // Keep only last 200 lines in DOM
+  const opData = activeOperations.get(operationId);
+  if (!opData) return;
   
   const pollLogs = async () => {
     try {
@@ -156,65 +130,37 @@ function startLogPolling(operationId) {
       const data = await response.json();
       
       if (data.success && data.logs) {
-        const terminalLines = document.getElementById('terminalLines');
-        
-        // Only append new lines
-        if (data.logs.length > lastLineCount) {
-          const newLines = data.logs.slice(lastLineCount);
-          newLines.forEach(line => {
-            const lineDiv = document.createElement('div');
-            lineDiv.textContent = line;
-            terminalLines.appendChild(lineDiv);
-          });
-          lastLineCount = data.logs.length;
-          
-          // Remove old lines if we exceed MAX_LINES
-          while (terminalLines.children.length > MAX_LINES) {
-            terminalLines.removeChild(terminalLines.firstChild);
-          }
-          
-          // Auto-scroll to bottom
-          const terminal = document.getElementById('terminalOutput');
-          terminal.scrollTop = terminal.scrollHeight;
-        }
+        // Update card with latest log line (optional - could show last line)
+        // For now, just check completion
         
         // Check if operation is complete
         if (data.completed) {
-          clearInterval(activeOperation.pollInterval);
-          activeOperation.pollInterval = null;
+          clearInterval(opData.pollInterval);
           
-          const overlay = document.getElementById('operationOverlay');
-          const modalIsVisible = overlay && !overlay.classList.contains('hidden');
+          // Update card to show completion
+          const card = opData.card;
+          const statusEl = card.querySelector('.operation-card-status');
           
-          if (modalIsVisible) {
-            // Modal is visible - wait a moment to show final output, then close
-            setTimeout(() => {
-              hideOperationProgress();
-              loadSites(); // Refresh sites list
-              
-              if (data.operationSuccess) {
-                showToast('Operation completed successfully', 'success');
-              } else {
-                showToast(`Operation failed: ${data.error || 'Unknown error'}`, 'error');
-              }
-            }, 1500);
+          if (data.operationSuccess) {
+            statusEl.textContent = 'Complete ✓';
+            card.classList.add('success');
+            showToast(`${opData.siteName} ${opData.operation} completed`, 'success');
           } else {
-            // Modal was closed - just show toast notification
-            hideOperationProgress();
-            loadSites(); // Refresh sites list
-            
-            const { operation, siteName } = activeOperation;
-            const opName = operation === 'creating' ? 'Creation' : 
-                          operation === 'updating' ? 'Update' :
-                          operation === 'migrating' ? 'Migration' :
-                          operation.charAt(0).toUpperCase() + operation.slice(1);
-            
-            if (data.operationSuccess) {
-              showToast(`${opName} of ${siteName} completed successfully`, 'success');
-            } else {
-              showToast(`${opName} of ${siteName} failed: ${data.error || 'Unknown error'}`, 'error');
-            }
+            statusEl.textContent = 'Failed ✗';
+            card.classList.add('error');
+            showToast(`${opData.siteName} ${opData.operation} failed: ${data.error || 'Unknown error'}`, 'error');
           }
+          
+          // Remove spinner
+          const spinner = card.querySelector('.operation-card-spinner');
+          if (spinner) spinner.remove();
+          
+          // Remove card after 3 seconds
+          setTimeout(() => {
+            card.remove();
+            activeOperations.delete(operationId);
+            loadSites(); // Refresh sites list
+          }, 3000);
         }
       }
     } catch (error) {
@@ -223,44 +169,8 @@ function startLogPolling(operationId) {
   };
   
   // Poll every 500ms
-  activeOperation.pollInterval = setInterval(pollLogs, 500);
+  opData.pollInterval = setInterval(pollLogs, 500);
   pollLogs(); // Call immediately
-}
-
-function hideOperationProgress() {
-  const overlay = document.getElementById('operationOverlay');
-  if (overlay) {
-    overlay.classList.add('hidden');
-  }
-  
-  // Stop polling if active
-  if (activeOperation && activeOperation.pollInterval) {
-    clearInterval(activeOperation.pollInterval);
-  }
-  
-  activeOperation = null;
-  
-  // Re-enable all action buttons
-  enableAllActions();
-}
-
-function closeOperationModal() {
-  const overlay = document.getElementById('operationOverlay');
-  if (overlay) {
-    overlay.classList.add('hidden');
-  }
-  // Don't stop polling - let it continue in background
-  // Don't clear activeOperation - it's still running
-}
-
-function disableAllActions() {
-  const buttons = document.querySelectorAll('.site-actions button, .settings-btn');
-  buttons.forEach(btn => btn.disabled = true);
-}
-
-function enableAllActions() {
-  const buttons = document.querySelectorAll('.site-actions button, .settings-btn');
-  buttons.forEach(btn => btn.disabled = false);
 }
 
 async function loadSites() {
@@ -341,9 +251,6 @@ function showEmptyState() {
 async function handleCreateSite(e) {
   e.preventDefault();
   
-  if (activeOperation) {
-    showToast('Please wait for the current operation to finish', 'error');
-    return;
   }
   
   const formData = new FormData(createForm);
@@ -379,9 +286,6 @@ async function handleCreateSite(e) {
 }
 
 async function startSite(name) {
-  if (activeOperation) {
-    showToast('Please wait for the current operation to finish', 'error');
-    return;
   }
   
   try {
@@ -412,9 +316,6 @@ async function startSite(name) {
 }
 
 async function stopSite(name) {
-  if (activeOperation) {
-    showToast('Please wait for the current operation to finish', 'error');
-    return;
   }
   
   try {
@@ -435,9 +336,6 @@ async function stopSite(name) {
 }
 
 async function restartSite(name) {
-  if (activeOperation) {
-    showToast('Please wait for the current operation to finish', 'error');
-    return;
   }
   
   try {
@@ -458,9 +356,6 @@ async function restartSite(name) {
 }
 
 async function rebuildSite(name) {
-  if (activeOperation) {
-    showToast('Please wait for the current operation to finish', 'error');
-    return;
   }
   
   try {
@@ -489,9 +384,6 @@ function confirmDeleteSite(name) {
 async function handleConfirmDelete() {
     if (!currentDeleteSite) return;
   
-  if (activeOperation) {
-    showToast('Please wait for the current operation to finish', 'error');
-    return;
   }
   
   const name = currentDeleteSite;
@@ -584,9 +476,6 @@ async function handleSaveSettings(e) {
     return;
   }
   
-  if (activeOperation) {
-    showToast('Please wait for the current operation to finish', 'error');
-    return;
   }
   
   const settings = {

@@ -632,3 +632,77 @@ small {
     padding: 2rem 1.5rem;
   }
 }
+
+/* Operation Cards - Bottom Left */
+.operations-container {
+  position: fixed;
+  bottom: 1rem;
+  left: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  z-index: 10000;
+  max-width: 300px;
+}
+
+.operation-card {
+  background: white;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  border-left: 3px solid var(--primary);
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.operation-card.success {
+  border-left-color: #22c55e;
+}
+
+.operation-card.error {
+  border-left-color: #ef4444;
+}
+
+.operation-card-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--light);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.operation-card-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.operation-card-title {
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--dark);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.operation-card-status {
+  font-size: 0.75rem;
+  color: var(--secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
