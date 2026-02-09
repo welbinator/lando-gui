@@ -854,6 +854,115 @@ app.post('/api/config/verify', async (req, res) => {
   }
 });
 
+// GET /api/sites/:name/config - Get site configuration
+app.get('/api/sites/:name/config', asyncHandler(async (req, res) => {
+  const { name } = req.params;
+  
+  validateSiteName(name);
+  
+  // Find the site directory
+  const sites = await getLandoSites();
+  const site = sites.find(s => s.app === name);
+  
+  if (!site) {
+    throw new AppError(`Site ${name} not found`, 404);
+  }
+  
+  const siteDir = site.dir;
+  const landoYmlPath = path.join(siteDir, '.lando.yml');
+  
+  // Read .lando.yml
+  const content = await fs.readFile(landoYmlPath, 'utf-8');
+  
+  // Parse config
+  const phpMatch = content.match(/php:\s*['"]?([^'\n"]+)['"]?/);
+  const databaseMatch = content.match(/database:\s*(.+)/);
+  const hasPhpMyAdmin = content.includes('type: phpmyadmin') || content.includes('type:phpmyadmin');
+  
+  const config = {
+    php: phpMatch ? phpMatch[1] : '8.1',
+    database: databaseMatch ? databaseMatch[1].trim() : 'mysql:8.0',
+    hasPhpMyAdmin
+  };
+  
+  res.json({ success: true, config });
+}));
+
+// PUT /api/sites/:name/config - Update site configuration
+app.put('/api/sites/:name/config', asyncHandler(async (req, res) => {
+  const { name } = req.params;
+  const { php, database, phpmyadmin } = req.body;
+  
+  validateSiteName(name);
+  
+  // Find the site directory
+  const sites = await getLandoSites();
+  const site = sites.find(s => s.app === name);
+  
+  if (!site) {
+    throw new AppError(`Site ${name} not found`, 404);
+  }
+  
+  const siteDir = site.dir;
+  const landoYmlPath = path.join(siteDir, '.lando.yml');
+  
+  // Read current .lando.yml
+  let content = await fs.readFile(landoYmlPath, 'utf-8');
+  
+  // Update PHP version
+  if (php) {
+    if (content.includes('php:')) {
+      // Replace existing php line
+      content = content.replace(/php:\s*['"]?[^'\n"]+['"]?/, `php: '${php}'`);
+    } else {
+      // Add php line after webroot (or at end of config section)
+      if (content.includes('webroot:')) {
+        content = content.replace(/(webroot:[^\n]+)/, `$1\n  php: '${php}'`);
+      } else if (content.includes('config:')) {
+        content = content.replace(/(config:\s*)/, `$1\n  php: '${php}'`);
+      }
+    }
+  }
+  
+  // Update database
+  if (database) {
+    if (content.includes('database:')) {
+      content = content.replace(/database:\s*.+/, `database: ${database}`);
+    } else {
+      // Add database line after php or webroot
+      if (content.includes('php:')) {
+        content = content.replace(/(php:\s*['"]?[^'\n"]+['"]?)/, `$1\n  database: ${database}`);
+      } else if (content.includes('webroot:')) {
+        content = content.replace(/(webroot:[^\n]+)/, `$1\n  database: ${database}`);
+      }
+    }
+  }
+  
+  // Update phpMyAdmin
+  const hasServices = content.includes('services:');
+  const hasPhpMyAdmin = content.includes('type: phpmyadmin') || content.includes('type:phpmyadmin');
+  
+  if (phpmyadmin && !hasPhpMyAdmin) {
+    // Add phpMyAdmin service
+    if (hasServices) {
+      // Add to existing services
+      content = content.replace(/services:/, `services:\n  myservice:\n    type: phpmyadmin`);
+    } else {
+      // Add services section
+      content += `\nservices:\n  myservice:\n    type: phpmyadmin\n`;
+    }
+  } else if (!phpmyadmin && hasPhpMyAdmin) {
+    // Remove phpMyAdmin service
+    content = content.replace(/services:\s*\n\s*myservice:\s*\n\s*type:\s*phpmyadmin\s*\n?/, '');
+    content = content.replace(/\nservices:\s*\n?$/, ''); // Remove empty services section
+  }
+  
+  // Write updated .lando.yml
+  await fs.writeFile(landoYmlPath, content);
+  
+  res.json({ success: true, message: 'Configuration updated' });
+}));
+
 // 404 handler - must be after all routes
 app.use(notFoundHandler);
 
@@ -880,114 +989,3 @@ async function startServer() {
 startServer();
 
 // GET /api/sites/:name/config - Get site configuration
-app.get('/api/sites/:name/config', async (req, res) => {
-  try {
-    const { name } = req.params;
-    
-    // Find the site directory
-    const sites = await getLandoSites();
-    const site = sites.find(s => s.app === name);
-    
-    if (!site) {
-      return res.status(404).json({ success: false, error: `Site ${name} not found` });
-    }
-    
-    const siteDir = site.dir;
-    const landoYmlPath = path.join(siteDir, '.lando.yml');
-    
-    // Read .lando.yml
-    const content = await fs.readFile(landoYmlPath, 'utf-8');
-    
-    // Parse config
-    const phpMatch = content.match(/php:\s*['"]?([^'\n"]+)['"]?/);
-    const databaseMatch = content.match(/database:\s*(.+)/);
-    const hasPhpMyAdmin = content.includes('type: phpmyadmin') || content.includes('type:phpmyadmin');
-    
-    const config = {
-      php: phpMatch ? phpMatch[1] : '8.1',
-      database: databaseMatch ? databaseMatch[1].trim() : 'mysql:8.0',
-      hasPhpMyAdmin
-    };
-    
-    res.json({ success: true, config });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// PUT /api/sites/:name/config - Update site configuration
-app.put('/api/sites/:name/config', async (req, res) => {
-  try {
-    const { name } = req.params;
-    const { php, database, phpmyadmin } = req.body;
-    
-    // Find the site directory
-    const sites = await getLandoSites();
-    const site = sites.find(s => s.app === name);
-    
-    if (!site) {
-      return res.status(404).json({ success: false, error: `Site ${name} not found` });
-    }
-    
-    const siteDir = site.dir;
-    const landoYmlPath = path.join(siteDir, '.lando.yml');
-    
-    // Read current .lando.yml
-    let content = await fs.readFile(landoYmlPath, 'utf-8');
-    
-    // Update PHP version
-    if (php) {
-      if (content.includes('php:')) {
-        // Replace existing php line
-        content = content.replace(/php:\s*['"]?[^'\n"]+['"]?/, `php: '${php}'`);
-      } else {
-        // Add php line after webroot (or at end of config section)
-        if (content.includes('webroot:')) {
-          content = content.replace(/(webroot:[^\n]+)/, `$1\n  php: '${php}'`);
-        } else if (content.includes('config:')) {
-          content = content.replace(/(config:\s*)/, `$1\n  php: '${php}'`);
-        }
-      }
-    }
-    
-    // Update database
-    if (database) {
-      if (content.includes('database:')) {
-        content = content.replace(/database:\s*.+/, `database: ${database}`);
-      } else {
-        // Add database line after php or webroot
-        if (content.includes('php:')) {
-          content = content.replace(/(php:\s*['"]?[^'\n"]+['"]?)/, `$1\n  database: ${database}`);
-        } else if (content.includes('webroot:')) {
-          content = content.replace(/(webroot:[^\n]+)/, `$1\n  database: ${database}`);
-        }
-      }
-    }
-    
-    // Update phpMyAdmin
-    const hasServices = content.includes('services:');
-    const hasPhpMyAdmin = content.includes('type: phpmyadmin') || content.includes('type:phpmyadmin');
-    
-    if (phpmyadmin && !hasPhpMyAdmin) {
-      // Add phpMyAdmin service
-      if (hasServices) {
-        // Add to existing services
-        content = content.replace(/services:/, `services:\n  myservice:\n    type: phpmyadmin`);
-      } else {
-        // Add services section
-        content += `\nservices:\n  myservice:\n    type: phpmyadmin\n`;
-      }
-    } else if (!phpmyadmin && hasPhpMyAdmin) {
-      // Remove phpMyAdmin service
-      content = content.replace(/services:\s*\n\s*myservice:\s*\n\s*type:\s*phpmyadmin\s*\n?/, '');
-      content = content.replace(/\nservices:\s*\n?$/, ''); // Remove empty services section
-    }
-    
-    // Write updated .lando.yml
-    await fs.writeFile(landoYmlPath, content);
-    
-    res.json({ success: true, message: 'Configuration updated' });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
