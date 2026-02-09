@@ -2,6 +2,7 @@ const API_URL = 'http://localhost:3000/api';
 
 let currentDeleteSite = null;
 let currentSettingsSite = null;
+let activeOperation = null; // Track ongoing operations
 
 // DOM Elements
 const sitesContainer = document.getElementById('sitesContainer');
@@ -62,6 +63,87 @@ function hideModal() {
 function hideDeleteModal() {
   deleteModal.classList.add('hidden');
   currentDeleteSite = null;
+}
+
+// Operation Progress Modal
+function showOperationProgress(operation, siteName) {
+  activeOperation = { operation, siteName };
+  
+  // Create overlay if it doesn't exist
+  let overlay = document.getElementById('operationOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'operationOverlay';
+    overlay.className = 'operation-overlay';
+    overlay.innerHTML = `
+      <div class="operation-modal">
+        <div class="operation-spinner"></div>
+        <h3 id="operationTitle"></h3>
+        <p id="operationMessage"></p>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+  }
+  
+  const title = document.getElementById('operationTitle');
+  const message = document.getElementById('operationMessage');
+  
+  const messages = {
+    starting: {
+      title: `Starting ${siteName}`,
+      message: 'This may take 30-60 seconds...'
+    },
+    stopping: {
+      title: `Stopping ${siteName}`,
+      message: 'Stopping containers...'
+    },
+    restarting: {
+      title: `Restarting ${siteName}`,
+      message: 'This may take 30-60 seconds...'
+    },
+    rebuilding: {
+      title: `Rebuilding ${siteName}`,
+      message: 'This may take several minutes. Please wait...'
+    },
+    destroying: {
+      title: `Destroying ${siteName}`,
+      message: 'Removing site and cleaning up...'
+    },
+    updating: {
+      title: `Updating ${siteName}`,
+      message: 'Updating configuration and rebuilding...'
+    }
+  };
+  
+  const config = messages[operation] || { title: operation, message: 'Processing...' };
+  title.textContent = config.title;
+  message.textContent = config.message;
+  
+  overlay.classList.remove('hidden');
+  
+  // Disable all action buttons
+  disableAllActions();
+}
+
+function hideOperationProgress() {
+  const overlay = document.getElementById('operationOverlay');
+  if (overlay) {
+    overlay.classList.add('hidden');
+  }
+  activeOperation = null;
+  
+  // Re-enable all action buttons
+  enableAllActions();
+}
+
+function disableAllActions() {
+  const buttons = document.querySelectorAll('.site-actions button, .settings-btn');
+  buttons.forEach(btn => btn.disabled = true);
+}
+
+function enableAllActions() {
+  const buttons = document.querySelectorAll('.site-actions button, .settings-btn');
+  buttons.forEach(btn => btn.disabled = false);
 }
 
 async function loadSites() {
@@ -181,110 +263,129 @@ async function handleCreateSite(e) {
 }
 
 async function startSite(name) {
-  showToast(`Starting ${name}... (this may take 30-60 seconds)`);
+  if (activeOperation) {
+    showToast('Please wait for the current operation to finish', 'error');
+    return;
+  }
+  
+  showOperationProgress('starting', name);
+  
   try {
-    // Disable the button to prevent double-clicks
-    const buttons = document.querySelectorAll('button');
-    buttons.forEach(btn => btn.disabled = true);
-    
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 min timeout
-    
     const response = await fetch(`${API_URL}/sites/${name}/start`, {
-      method: 'POST',
-      signal: controller.signal
+      method: 'POST'
     });
-    clearTimeout(timeoutId);
     
     const result = await response.json();
     
     if (result.success) {
       showToast(`${name} started successfully`, 'success');
-      loadSites();
+      await loadSites();
     } else {
       // Check if rebuild is needed
       if (result.needsRebuild) {
+        hideOperationProgress();
         const shouldRebuild = confirm(
           `⚠️ ${name} has a Docker network error and needs to be rebuilt.\n\n` +
           `Click OK to rebuild now (this will take a few minutes), or Cancel to do it manually.`
         );
         
         if (shouldRebuild) {
-          rebuildSite(name);
+          await rebuildSite(name);
           return;
         }
+      } else {
+        throw new Error(result.error);
       }
-      
-      throw new Error(result.error);
     }
   } catch (error) {
-    if (error.name === 'AbortError') {
-      showToast(`${name} took too long to start. Check the terminal.`, 'error');
-    } else {
-      showToast(`Failed to start ${name}: ${error.message}`, 'error');
-    }
-    loadSites(); // Still refresh in case it partially worked
+    showToast(`Failed to start ${name}: ${error.message}`, 'error');
+    await loadSites(); // Refresh in case state changed
   } finally {
-    // Re-enable buttons
-    const buttons = document.querySelectorAll('button');
-    buttons.forEach(btn => btn.disabled = false);
+    hideOperationProgress();
   }
 }
 
 async function stopSite(name) {
-  showToast(`Stopping ${name}...`);
+  if (activeOperation) {
+    showToast('Please wait for the current operation to finish', 'error');
+    return;
+  }
+  
+  showOperationProgress('stopping', name);
+  
   try {
     const response = await fetch(`${API_URL}/sites/${name}/stop`, {
       method: 'POST'
     });
+    
     const result = await response.json();
     
     if (result.success) {
       showToast(`${name} stopped successfully`, 'success');
-      loadSites();
+      await loadSites();
     } else {
       throw new Error(result.error);
     }
   } catch (error) {
     showToast(`Failed to stop ${name}: ${error.message}`, 'error');
+  } finally {
+    hideOperationProgress();
   }
 }
 
 async function restartSite(name) {
-  showToast(`Restarting ${name}...`);
+  if (activeOperation) {
+    showToast('Please wait for the current operation to finish', 'error');
+    return;
+  }
+  
+  showOperationProgress('restarting', name);
+  
   try {
     const response = await fetch(`${API_URL}/sites/${name}/restart`, {
       method: 'POST'
     });
+    
     const result = await response.json();
     
     if (result.success) {
       showToast(`${name} restarted successfully`, 'success');
-      loadSites();
+      await loadSites();
     } else {
       throw new Error(result.error);
     }
   } catch (error) {
     showToast(`Failed to restart ${name}: ${error.message}`, 'error');
+  } finally {
+    hideOperationProgress();
   }
 }
 
 async function rebuildSite(name) {
-  showToast(`Rebuilding ${name}... This may take a while.`);
+  if (activeOperation) {
+    showToast('Please wait for the current operation to finish', 'error');
+    return;
+  }
+  
+  showOperationProgress('rebuilding', name);
+  
   try {
     const response = await fetch(`${API_URL}/sites/${name}/rebuild`, {
       method: 'POST'
     });
+    
     const result = await response.json();
     
     if (result.success) {
       showToast(`${name} rebuilt successfully`, 'success');
-      loadSites();
+      await loadSites();
     } else {
       throw new Error(result.error);
     }
   } catch (error) {
     showToast(`Failed to rebuild ${name}: ${error.message}`, 'error');
+  } finally {
+    hideOperationProgress();
   }
 }
 
@@ -297,24 +398,33 @@ function confirmDeleteSite(name) {
 async function handleConfirmDelete() {
   if (!currentDeleteSite) return;
   
+  if (activeOperation) {
+    showToast('Please wait for the current operation to finish', 'error');
+    return;
+  }
+  
   const name = currentDeleteSite;
   hideDeleteModal();
-  showToast(`Destroying ${name}...`);
+  
+  showOperationProgress('destroying', name);
   
   try {
     const response = await fetch(`${API_URL}/sites/${name}`, {
       method: 'DELETE'
     });
+    
     const result = await response.json();
     
     if (result.success) {
       showToast(`${name} destroyed completely`, 'success');
-      loadSites();
+      await loadSites();
     } else {
       throw new Error(result.error);
     }
   } catch (error) {
     showToast(`Failed to destroy ${name}: ${error.message}`, 'error');
+  } finally {
+    hideOperationProgress();
   }
 }
 
@@ -382,6 +492,11 @@ async function handleSaveSettings(e) {
     return;
   }
   
+  if (activeOperation) {
+    showToast('Please wait for the current operation to finish', 'error');
+    return;
+  }
+  
   const settings = {
     php: document.getElementById('settingsPhp').value,
     database: document.getElementById('settingsDatabase').value,
@@ -390,10 +505,10 @@ async function handleSaveSettings(e) {
   
   console.log('Saving settings:', settings, 'for site:', currentSettingsSite);
   
-  const siteToUpdate = currentSettingsSite; // Store before hiding modal
-  
-  showToast(`Updating ${siteToUpdate}...`);
+  const siteToUpdate = currentSettingsSite;
   hideSettingsModal();
+  
+  showOperationProgress('updating', siteToUpdate);
   
   try {
     const url = `${API_URL}/sites/${encodeURIComponent(siteToUpdate)}/config`;
@@ -407,15 +522,26 @@ async function handleSaveSettings(e) {
     const result = await response.json();
     
     if (result.success) {
-      showToast(`Settings updated! Rebuilding ${siteToUpdate}...`);
+      // Now rebuild the site
+      const rebuildResponse = await fetch(`${API_URL}/sites/${siteToUpdate}/rebuild`, {
+        method: 'POST'
+      });
       
-      // Rebuild the site
-      await rebuildSite(siteToUpdate);
+      const rebuildResult = await rebuildResponse.json();
+      
+      if (rebuildResult.success) {
+        showToast(`${siteToUpdate} updated and rebuilt successfully`, 'success');
+        await loadSites();
+      } else {
+        throw new Error(rebuildResult.error || 'Rebuild failed');
+      }
     } else {
       throw new Error(result.error);
     }
   } catch (error) {
     showToast(`Failed to update settings: ${error.message}`, 'error');
+  } finally {
+    hideOperationProgress();
   }
 }
 
