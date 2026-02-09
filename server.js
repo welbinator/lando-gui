@@ -584,21 +584,34 @@ app.post('/api/sites/:name/migrate-mysql', async (req, res) => {
     
     const log = operationLogs.get(operationId);
     
+    // Helper to run command and append output to our log
+    const runStep = async (stepMsg, command) => {
+      log.lines.push(stepMsg);
+      try {
+        const { stdout, stderr } = await execPromise(command, { cwd: siteDir });
+        if (stdout) {
+          stdout.split('\n').filter(l => l.trim()).forEach(line => log.lines.push(line));
+        }
+        if (stderr) {
+          stderr.split('\n').filter(l => l.trim()).forEach(line => log.lines.push(line));
+        }
+        return { success: true };
+      } catch (error) {
+        log.lines.push(`❌ Error: ${error.message}`);
+        throw error;
+      }
+    };
+    
     // Start the migration asynchronously
     (async () => {
       try {
         // Step 1: Export database
-        log.lines.push('📦 Exporting database...');
-        await runLandoCommandWithLogs(operationId, `lando db-export ${backupFile}`, siteDir);
+        await runStep('📦 Step 1/6: Exporting database...', `lando db-export ${backupFile}`);
         log.lines.push(`✅ Database exported to ${backupFile}`);
+        log.lines.push('');
         
-        // Step 2: Stop site
-        log.lines.push('⏸️  Stopping site...');
-        await runLandoCommandWithLogs(operationId, 'lando stop', siteDir);
-        log.lines.push('✅ Site stopped');
-        
-        // Step 3: Update config
-        log.lines.push('📝 Updating configuration...');
+        // Step 2: Update config
+        log.lines.push('📝 Step 2/6: Updating configuration...');
         const landoYmlPath = path.join(siteDir, '.lando.yml');
         let content = await fs.readFile(landoYmlPath, 'utf-8');
         
@@ -643,33 +656,29 @@ app.post('/api/sites/:name/migrate-mysql', async (req, res) => {
         
         await fs.writeFile(landoYmlPath, content);
         log.lines.push(`✅ Configuration updated to ${database}`);
+        log.lines.push('');
         
-        // Step 4: Remove old database volume
-        log.lines.push('🗑️  Removing old database volume...');
-        const volumeName = `${name.replace(/-/g, '')}_data_database`;
-        try {
-          await execPromise(`docker volume rm ${volumeName}`);
-          log.lines.push('✅ Old database volume removed');
-        } catch (err) {
-          log.lines.push(`⚠️  Could not remove volume (may not exist): ${err.message}`);
-        }
+        // Step 3: Destroy app (removes all containers and volumes)
+        await runStep('🗑️  Step 3/6: Destroying app and removing old database...', 'lando destroy -y');
+        log.lines.push('✅ App destroyed (all old containers and data removed)');
+        log.lines.push('');
         
-        // Step 5: Start with new MySQL version
-        log.lines.push('🚀 Starting site with new MySQL version...');
-        await runLandoCommandWithLogs(operationId, 'lando start', siteDir);
-        log.lines.push('✅ Site started with new MySQL version');
+        // Step 4: Start with new MySQL version (recreates from scratch)
+        await runStep('🚀 Step 4/6: Starting app with new MySQL version...', 'lando start');
+        log.lines.push('✅ App started with new MySQL version');
+        log.lines.push('');
         
-        // Step 6: Import database
-        log.lines.push('📥 Importing database...');
-        await runLandoCommandWithLogs(operationId, `lando db-import ${backupFile}`, siteDir);
+        // Step 5: Import database
+        await runStep('📥 Step 5/6: Importing database...', `lando db-import ${backupFile}`);
         log.lines.push('✅ Database imported successfully');
+        log.lines.push('');
         
-        // Step 7: Cleanup backup file
-        log.lines.push('🧹 Cleaning up backup file...');
+        // Step 6: Cleanup backup file
+        log.lines.push('🧹 Step 6/6: Cleaning up backup file...');
         await fs.unlink(path.join(siteDir, backupFile));
         log.lines.push('✅ Backup file removed');
-        
         log.lines.push('');
+        
         log.lines.push('🎉 MySQL migration completed successfully!');
         log.completed = true;
         log.success = true;
@@ -678,6 +687,7 @@ app.post('/api/sites/:name/migrate-mysql', async (req, res) => {
         console.error(`Error migrating MySQL for ${name}:`, error);
         log.lines.push('');
         log.lines.push(`❌ Migration failed: ${error.message}`);
+        log.lines.push('⚠️  Your site may be in an incomplete state. Try running "lando rebuild -y" manually.');
         log.completed = true;
         log.success = false;
         log.error = error.message;
