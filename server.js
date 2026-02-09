@@ -7,6 +7,11 @@ const fs = require('fs').promises;
 const path = require('path');
 const config = require('./config');
 
+// Middleware
+const { AppError, asyncHandler, errorHandler, notFoundHandler } = require('./middleware/errorHandler');
+const requestLogger = require('./middleware/requestLogger');
+const { validateSiteName, validateRequired, validateEnum } = require('./middleware/validation');
+
 const execAsync = promisify(exec);
 const app = express();
 const PORT = 3000;
@@ -17,9 +22,10 @@ let APP_CONFIG = null;
 // Operation logs storage (in-memory)
 const operationLogs = new Map();
 
-// Middleware
+// Middleware setup
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+app.use(requestLogger);
 app.use(express.static('public'));
 
 // Helper: Execute Lando commands
@@ -286,276 +292,254 @@ app.get('/api/operations/:id/logs', (req, res) => {
 });
 
 // GET /api/sites - List all sites
-app.get('/api/sites', async (req, res) => {
-  try {
-    const sites = await getLandoSites();
-    res.json({ success: true, sites });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
+app.get('/api/sites', asyncHandler(async (req, res) => {
+  const sites = await getLandoSites();
+  res.json({ success: true, sites });
+}));
 
 // POST /api/sites - Create new site
-app.post('/api/sites', async (req, res) => {
+app.post('/api/sites', asyncHandler(async (req, res) => {
+  const { name, recipe, php, database, webroot, phpmyadmin } = req.body;
+
+  // Validation
+  validateRequired(req.body, ['name', 'recipe']);
+  validateSiteName(name);
+  
+  const allowedRecipes = ['wordpress', 'drupal9', 'drupal10', 'laravel', 'lamp'];
+  validateEnum(recipe, allowedRecipes, 'recipe');
+
+  const siteDir = path.join(APP_CONFIG.sitesDirectory, name);
+
+  // Check if site already exists
   try {
-    const { name, recipe, php, database, webroot, phpmyadmin } = req.body;
+    await fs.access(siteDir);
+    throw new AppError('Site already exists', 400);
+  } catch (e) {
+    if (e.isOperational) throw e; // Re-throw our AppError
+    // Directory doesn't exist, good to proceed
+  }
 
-    if (!name || !recipe) {
-      return res.status(400).json({ success: false, error: 'Name and recipe are required' });
-    }
+  const operationId = `create-${name}-${Date.now()}`;
+  
+  // Send immediate response with operation ID
+  res.json({ success: true, operationId });
 
-    const siteDir = path.join(APP_CONFIG.sitesDirectory, name);
+  // Start the operation asynchronously
+  (async () => {
+    const log = operationLogs.get(operationId) || { lines: [], completed: false, success: null, error: null };
+    operationLogs.set(operationId, log);
 
-    // Check if site already exists
     try {
-      await fs.access(siteDir);
-      return res.status(400).json({ success: false, error: 'Site already exists' });
-    } catch (e) {
-      // Directory doesn't exist, good to proceed
-    }
+      // Create directory
+      log.lines.push(`Creating directory: ${siteDir}`);
+      await fs.mkdir(siteDir, { recursive: true });
 
-    const operationId = `create-${name}-${Date.now()}`;
-    
-    // Send immediate response with operation ID
-    res.json({ success: true, operationId });
+      // Download WordPress if recipe is wordpress
+      if (recipe === 'wordpress') {
+        log.lines.push('Downloading WordPress...');
+        await runLandoCommand('wget https://wordpress.org/latest.tar.gz', siteDir);
+        
+        log.lines.push('Extracting WordPress files...');
+        await runLandoCommand('tar -xzf latest.tar.gz && mv wordpress/* . && rm -rf wordpress latest.tar.gz', siteDir);
+      }
 
-    // Start the operation asynchronously
-    (async () => {
-      const log = operationLogs.get(operationId) || { lines: [], completed: false, success: null, error: null };
-      operationLogs.set(operationId, log);
-
-      try {
-        // Create directory
-        log.lines.push(`Creating directory: ${siteDir}`);
-        await fs.mkdir(siteDir, { recursive: true });
-
-        // Download WordPress if recipe is wordpress
-        if (recipe === 'wordpress') {
-          log.lines.push('Downloading WordPress...');
-          await runLandoCommand('wget https://wordpress.org/latest.tar.gz', siteDir);
-          
-          log.lines.push('Extracting WordPress files...');
-          await runLandoCommand('tar -xzf latest.tar.gz && mv wordpress/* . && rm -rf wordpress latest.tar.gz', siteDir);
+      // Create .lando.yml
+      log.lines.push('Creating .lando.yml configuration...');
+      const landoConfig = {
+        name: name,
+        recipe: recipe,
+        config: {
+          webroot: webroot || '.',
+          php: php || '8.1'
         }
+      };
 
-        // Create .lando.yml
-        log.lines.push('Creating .lando.yml configuration...');
-        const landoConfig = {
-          name: name,
-          recipe: recipe,
-          config: {
-            webroot: webroot || '.',
-            php: php || '8.1'
-          }
-        };
+      if (database) {
+        landoConfig.config.database = database;
+      }
 
-        if (database) {
-          landoConfig.config.database = database;
-        }
-
-        let yamlContent = `name: ${landoConfig.name}
+      let yamlContent = `name: ${landoConfig.name}
 recipe: ${landoConfig.recipe}
 config:
   webroot: ${landoConfig.config.webroot}
   php: '${landoConfig.config.php}'${database ? `\n  database: ${database}` : ''}
 `;
 
-        // Add phpMyAdmin service if requested
-        if (phpmyadmin) {
-          yamlContent += `\nservices:\n  myservice:\n    type: phpmyadmin\n`;
-        }
-
-        await fs.writeFile(path.join(siteDir, '.lando.yml'), yamlContent);
-
-        // Start Lando with streaming output
-        log.lines.push('Starting Lando (this may take a minute)...');
-        await runLandoCommandWithLogs(operationId, 'lando start', siteDir);
-
-        // If WordPress, create wp-config and install
-        if (recipe === 'wordpress') {
-          log.lines.push('Configuring WordPress database...');
-          await runLandoCommand(
-            'lando wp config create --dbname=wordpress --dbuser=wordpress --dbpass=wordpress --dbhost=database --skip-check',
-            siteDir
-          );
-          
-          // Get WordPress credentials from config
-          const wpUser = APP_CONFIG.wordpress?.adminUser || 'admin';
-          const wpPass = APP_CONFIG.wordpress?.adminPassword || 'admin';
-          const wpEmail = APP_CONFIG.wordpress?.adminEmail || 'admin@example.com';
-          
-          log.lines.push('Installing WordPress...');
-          await runLandoCommand(
-            `lando wp core install --url=https://${name}.lndo.site --title="${name}'s Site" --admin_user=${wpUser} --admin_password=${wpPass} --admin_email=${wpEmail}`,
-            siteDir
-          );
-          
-          log.lines.push(`Site ready at: https://${name}.lndo.site`);
-          log.lines.push(`WordPress login: ${wpUser} / ${wpPass}`);
-        }
-
-        log.lines.push('✅ Site created successfully!');
-        log.completed = true;
-        log.success = true;
-
-      } catch (error) {
-        log.lines.push(`❌ Error: ${error.message}`);
-        log.completed = true;
-        log.success = false;
-        log.error = error.message;
+      // Add phpMyAdmin service if requested
+      if (phpmyadmin) {
+        yamlContent += `\nservices:\n  myservice:\n    type: phpmyadmin\n`;
       }
-    })();
 
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
+      await fs.writeFile(path.join(siteDir, '.lando.yml'), yamlContent);
+
+      // Start Lando with streaming output
+      log.lines.push('Starting Lando (this may take a minute)...');
+      await runLandoCommandWithLogs(operationId, 'lando start', siteDir);
+
+      // If WordPress, create wp-config and install
+      if (recipe === 'wordpress') {
+        log.lines.push('Configuring WordPress database...');
+        await runLandoCommand(
+          'lando wp config create --dbname=wordpress --dbuser=wordpress --dbpass=wordpress --dbhost=database --skip-check',
+          siteDir
+        );
+        
+        // Get WordPress credentials from config
+        const wpUser = APP_CONFIG.wordpress?.adminUser || 'admin';
+        const wpPass = APP_CONFIG.wordpress?.adminPassword || 'admin';
+        const wpEmail = APP_CONFIG.wordpress?.adminEmail || 'admin@example.com';
+        
+        log.lines.push('Installing WordPress...');
+        await runLandoCommand(
+          `lando wp core install --url=https://${name}.lndo.site --title="${name}'s Site" --admin_user=${wpUser} --admin_password=${wpPass} --admin_email=${wpEmail}`,
+          siteDir
+        );
+        
+        log.lines.push(`Site ready at: https://${name}.lndo.site`);
+        log.lines.push(`WordPress login: ${wpUser} / ${wpPass}`);
+      }
+
+      log.lines.push('✅ Site created successfully!');
+      log.completed = true;
+      log.success = true;
+
+    } catch (error) {
+      log.lines.push(`❌ Error: ${error.message}`);
+      log.completed = true;
+      log.success = false;
+      log.error = error.message;
+    }
+  })();
+}));
 
 // POST /api/sites/:name/start
-app.post('/api/sites/:name/start', async (req, res) => {
-  try {
-    const { name } = req.params;
-    
-    // Find the site directory by searching for the site with this name
-    const sites = await getLandoSites();
-    const site = sites.find(s => s.app === name);
-    
-    if (!site) {
-      return res.status(404).json({ 
-        success: false, 
-        error: `Site ${name} not found` 
-      });
-    }
-    
-    const siteDir = site.dir;
-    
-    // Verify directory exists
-    try {
-      await fs.access(siteDir);
-    } catch (e) {
-      return res.status(404).json({ 
-        success: false, 
-        error: `Site directory not found: ${siteDir}` 
-      });
-    }
-    
-    // Generate unique operation ID
-    const operationId = `start-${name}-${Date.now()}`;
-    
-    // Send immediate response with operation ID
-    res.json({ success: true, operationId });
-    
-    // Start the operation asynchronously
-    console.log(`Starting site ${name} in directory: ${siteDir}`);
-    try {
-      await runLandoCommandWithLogs(operationId, 'lando start', siteDir);
-    } catch (error) {
-      console.error(`Error starting ${name}:`, error.message);
-    }
-  } catch (error) {
-    console.error('Error in start endpoint:', error);
-    res.status(500).json({ success: false, error: error.message });
+app.post('/api/sites/:name/start', asyncHandler(async (req, res) => {
+  const { name } = req.params;
+  
+  // Validate site name
+  validateSiteName(name);
+  
+  // Find the site directory by searching for the site with this name
+  const sites = await getLandoSites();
+  const site = sites.find(s => s.app === name);
+  
+  if (!site) {
+    throw new AppError(`Site ${name} not found`, 404);
   }
-});
+  
+  const siteDir = site.dir;
+  
+  // Verify directory exists
+  try {
+    await fs.access(siteDir);
+  } catch (e) {
+    throw new AppError(`Site directory not found: ${siteDir}`, 404);
+  }
+  
+  // Generate unique operation ID
+  const operationId = `start-${name}-${Date.now()}`;
+  
+  // Send immediate response with operation ID
+  res.json({ success: true, operationId });
+  
+  // Start the operation asynchronously
+  console.log(`Starting site ${name} in directory: ${siteDir}`);
+  try {
+    await runLandoCommandWithLogs(operationId, 'lando start', siteDir);
+  } catch (error) {
+    console.error(`Error starting ${name}:`, error.message);
+  }
+}));
 
 // POST /api/sites/:name/stop
-app.post('/api/sites/:name/stop', async (req, res) => {
-  try {
-    const { name } = req.params;
-    
-    // Find the site directory
-    const sites = await getLandoSites();
-    const site = sites.find(s => s.app === name);
-    
-    if (!site) {
-      return res.status(404).json({ success: false, error: `Site ${name} not found` });
-    }
-    
-    const siteDir = site.dir;
-    const operationId = `stop-${name}-${Date.now()}`;
-    
-    console.log(`Stopping site ${name} in directory: ${siteDir}`);
-    
-    // Send immediate response with operation ID
-    res.json({ success: true, operationId });
-    
-    // Start the operation asynchronously
-    try {
-      await runLandoCommandWithLogs(operationId, 'lando stop', siteDir);
-    } catch (error) {
-      console.error(`Error stopping ${name}:`, error.message);
-    }
-  } catch (error) {
-    console.error('Error in stop endpoint:', error);
-    res.status(500).json({ success: false, error: error.message });
+app.post('/api/sites/:name/stop', asyncHandler(async (req, res) => {
+  const { name } = req.params;
+  
+  validateSiteName(name);
+  
+  // Find the site directory
+  const sites = await getLandoSites();
+  const site = sites.find(s => s.app === name);
+  
+  if (!site) {
+    throw new AppError(`Site ${name} not found`, 404);
   }
-});
+  
+  const siteDir = site.dir;
+  const operationId = `stop-${name}-${Date.now()}`;
+  
+  console.log(`Stopping site ${name} in directory: ${siteDir}`);
+  
+  // Send immediate response with operation ID
+  res.json({ success: true, operationId });
+  
+  // Start the operation asynchronously
+  try {
+    await runLandoCommandWithLogs(operationId, 'lando stop', siteDir);
+  } catch (error) {
+    console.error(`Error stopping ${name}:`, error.message);
+  }
+}));
 
 // POST /api/sites/:name/restart
-app.post('/api/sites/:name/restart', async (req, res) => {
-  try {
-    const { name } = req.params;
-    
-    // Find the site directory
-    const sites = await getLandoSites();
-    const site = sites.find(s => s.app === name);
-    
-    if (!site) {
-      return res.status(404).json({ success: false, error: `Site ${name} not found` });
-    }
-    
-    const siteDir = site.dir;
-    const operationId = `restart-${name}-${Date.now()}`;
-    
-    console.log(`Restarting site ${name} in directory: ${siteDir}`);
-    
-    // Send immediate response with operation ID
-    res.json({ success: true, operationId });
-    
-    // Start the operation asynchronously
-    try {
-      await runLandoCommandWithLogs(operationId, 'lando restart', siteDir);
-    } catch (error) {
-      console.error(`Error restarting ${name}:`, error.message);
-    }
-  } catch (error) {
-    console.error('Error in restart endpoint:', error);
-    res.status(500).json({ success: false, error: error.message });
+app.post('/api/sites/:name/restart', asyncHandler(async (req, res) => {
+  const { name } = req.params;
+  
+  validateSiteName(name);
+  
+  // Find the site directory
+  const sites = await getLandoSites();
+  const site = sites.find(s => s.app === name);
+  
+  if (!site) {
+    throw new AppError(`Site ${name} not found`, 404);
   }
-});
+  
+  const siteDir = site.dir;
+  const operationId = `restart-${name}-${Date.now()}`;
+  
+  console.log(`Restarting site ${name} in directory: ${siteDir}`);
+  
+  // Send immediate response with operation ID
+  res.json({ success: true, operationId });
+  
+  // Start the operation asynchronously
+  try {
+    await runLandoCommandWithLogs(operationId, 'lando restart', siteDir);
+  } catch (error) {
+    console.error(`Error restarting ${name}:`, error.message);
+  }
+}));
 
 // POST /api/sites/:name/rebuild
-app.post('/api/sites/:name/rebuild', async (req, res) => {
-  try {
-    const { name } = req.params;
-    
-    // Find the site directory
-    const sites = await getLandoSites();
-    const site = sites.find(s => s.app === name);
-    
-    if (!site) {
-      return res.status(404).json({ success: false, error: `Site ${name} not found` });
-    }
-    
-    const siteDir = site.dir;
-    const operationId = `rebuild-${name}-${Date.now()}`;
-    
-    console.log(`Rebuilding site ${name} in directory: ${siteDir}`);
-    
-    // Send immediate response with operation ID
-    res.json({ success: true, operationId });
-    
-    // Start the operation asynchronously
-    try {
-      await runLandoCommandWithLogs(operationId, 'lando rebuild -y', siteDir);
-    } catch (error) {
-      console.error(`Error rebuilding ${name}:`, error.message);
-    }
-  } catch (error) {
-    console.error('Error in rebuild endpoint:', error);
-    res.status(500).json({ success: false, error: error.message });
+app.post('/api/sites/:name/rebuild', asyncHandler(async (req, res) => {
+  const { name } = req.params;
+  
+  validateSiteName(name);
+  
+  // Find the site directory
+  const sites = await getLandoSites();
+  const site = sites.find(s => s.app === name);
+  
+  if (!site) {
+    throw new AppError(`Site ${name} not found`, 404);
   }
-});
+  
+  const siteDir = site.dir;
+  const operationId = `rebuild-${name}-${Date.now()}`;
+  
+  console.log(`Rebuilding site ${name} in directory: ${siteDir}`);
+  
+  // Send immediate response with operation ID
+  res.json({ success: true, operationId });
+  
+  // Start the operation asynchronously
+  try {
+    await runLandoCommandWithLogs(operationId, 'lando rebuild -y', siteDir);
+  } catch (error) {
+    console.error(`Error rebuilding ${name}:`, error.message);
+  }
+}));
 
 // POST /api/sites/:name/migrate-mysql - Safe MySQL version change with export/import
 app.post('/api/sites/:name/migrate-mysql', async (req, res) => {
@@ -869,6 +853,12 @@ app.post('/api/config/verify', async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
+
+// 404 handler - must be after all routes
+app.use(notFoundHandler);
+
+// Global error handler - must be last
+app.use(errorHandler);
 
 // Start server
 async function startServer() {
