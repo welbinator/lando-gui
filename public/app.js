@@ -559,8 +559,6 @@ async function handleSaveSettings(e) {
   const siteToUpdate = currentSettingsSite;
   hideSettingsModal();
   
-  showOperationProgress('updating', siteToUpdate);
-  
   try {
     const url = `${API_URL}/sites/${encodeURIComponent(siteToUpdate)}/config`;
     console.log('PUT to:', url);
@@ -573,16 +571,15 @@ async function handleSaveSettings(e) {
     const result = await response.json();
     
     if (result.success) {
-      // Now rebuild the site
+      // Now rebuild the site with streaming
       const rebuildResponse = await fetch(`${API_URL}/sites/${siteToUpdate}/rebuild`, {
         method: 'POST'
       });
       
       const rebuildResult = await rebuildResponse.json();
       
-      if (rebuildResult.success) {
-        showToast(`${siteToUpdate} updated and rebuilt successfully`, 'success');
-        await loadSites();
+            if (rebuildResult.success && rebuildResult.operationId) {
+        showOperationProgress('updating', siteToUpdate, rebuildResult.operationId);
       } else {
         throw new Error(rebuildResult.error || 'Rebuild failed');
       }
@@ -591,8 +588,6 @@ async function handleSaveSettings(e) {
     }
   } catch (error) {
     showToast(`Failed to update settings: ${error.message}`, 'error');
-  } finally {
-    hideOperationProgress();
   }
 }
 
