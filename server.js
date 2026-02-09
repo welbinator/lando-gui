@@ -611,6 +611,14 @@ app.post('/api/sites/:name/migrate-mysql', async (req, res) => {
         log.lines.push(`✅ Database exported to ${backupFile}`);
         log.lines.push('');
         
+        // Step 1.5: Move backup outside site directory (lando destroy will delete it otherwise)
+        log.lines.push('💾 Moving backup to safe location...');
+        const backupPath = path.join(siteDir, backupFile);
+        const safeBackupPath = path.join('/tmp', `lando-migrate-${backupFile}`);
+        await fs.rename(backupPath, safeBackupPath);
+        log.lines.push(`✅ Backup moved to ${safeBackupPath}`);
+        log.lines.push('');
+        
         // Step 2: Update config
         log.lines.push('📝 Step 2/6: Updating configuration...');
         const landoYmlPath = path.join(siteDir, '.lando.yml');
@@ -669,6 +677,12 @@ app.post('/api/sites/:name/migrate-mysql', async (req, res) => {
         log.lines.push('✅ App started with new MySQL version');
         log.lines.push('');
         
+        // Step 4.5: Move backup back into site directory for import
+        log.lines.push('📥 Moving backup back for import...');
+        await fs.rename(safeBackupPath, backupPath);
+        log.lines.push('✅ Backup ready for import');
+        log.lines.push('');
+        
         // Step 5: Import database
         await runStep('📥 Step 5/6: Importing database...', `lando db-import ${backupFile}`);
         log.lines.push('✅ Database imported successfully');
@@ -676,8 +690,13 @@ app.post('/api/sites/:name/migrate-mysql', async (req, res) => {
         
         // Step 6: Cleanup backup file
         log.lines.push('🧹 Step 6/6: Cleaning up backup file...');
-        await fs.unlink(path.join(siteDir, backupFile));
-        log.lines.push('✅ Backup file removed');
+        try {
+          await fs.unlink(path.join(siteDir, backupFile));
+          log.lines.push('✅ Backup file removed');
+        } catch (err) {
+          // File might already be gone, that's okay
+          log.lines.push('✅ Backup cleanup complete');
+        }
         log.lines.push('');
         
         log.lines.push('🎉 MySQL migration completed successfully!');
