@@ -47,7 +47,7 @@ async function runLandoCommand(command, cwd = null) {
 
 // Helper: Execute Lando command with live output streaming
 async function runLandoCommandWithLogs(operationId, command, cwd = null) {
-          return new Promise((resolve, reject) => {
+            return new Promise((resolve, reject) => {
     // Initialize log storage for this operation
     operationLogs.set(operationId, {
       lines: [],
@@ -59,9 +59,6 @@ async function runLandoCommandWithLogs(operationId, command, cwd = null) {
     const landoPath = APP_CONFIG.landoPath === 'lando' ? 'lando' : APP_CONFIG.landoPath;
     const commandArray = command.split(' ');
     commandArray[0] = landoPath;
-    
-    // Wrap command with script to get unbuffered output
-    const wrappedCommand = `script -qec "${commandArray.join(' ')}" /dev/null`;
 
     const options = {
       cwd: cwd || process.cwd(),
@@ -71,41 +68,44 @@ async function runLandoCommandWithLogs(operationId, command, cwd = null) {
         LANDO_NO_COLOR: '1',
         PYTHONUNBUFFERED: '1',
         NODE_NO_WARNINGS: '1'
-      },
-      stdio: ['ignore', 'pipe', 'pipe']
+      }
     };
 
     // Helper to strip ANSI escape codes
     const stripAnsi = (str) => {
-      return str.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '') // CSI sequences
+      return str.replace(/\x1B\[[0-9;?]*[a-zA-Z]/g, '') // CSI sequences
                 .replace(/\x1B\][0-9];[^\x07]*\x07/g, '') // OSC sequences
-                .replace(/\x1B[=>]/g, '') // Other escape sequences
+                .replace(/\x1B[=>]/g, '') // Other escape sequences  
                 .replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F]/g, ''); // Control chars
     };
 
-    console.log(`[${operationId}] Spawning command: ${wrappedCommand}`);
-    const child = spawn(wrappedCommand, [], options);
+    console.log(`[${operationId}] Spawning command: ${commandArray.join(' ')}`);
+    const child = spawn(commandArray.join(' '), [], options);
 
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
 
     child.stdout.on('data', (data) => {
       const text = stripAnsi(data.toString());
-      console.log(`[${operationId}] stdout:`, text);
-      const lines = text.split('\n').filter(line => line.trim());
-      const log = operationLogs.get(operationId);
-      if (log) {
-        log.lines.push(...lines);
+      if (text.trim()) {
+        console.log(`[${operationId}] stdout:`, text);
+        const lines = text.split('\n').filter(line => line.trim());
+        const log = operationLogs.get(operationId);
+        if (log) {
+          log.lines.push(...lines);
+        }
       }
     });
 
     child.stderr.on('data', (data) => {
       const text = stripAnsi(data.toString());
-      console.log(`[${operationId}] stderr:`, text);
-      const lines = text.split('\n').filter(line => line.trim());
-      const log = operationLogs.get(operationId);
-      if (log) {
-        log.lines.push(...lines);
+      if (text.trim()) {
+        console.log(`[${operationId}] stderr:`, text);
+        const lines = text.split('\n').filter(line => line.trim());
+        const log = operationLogs.get(operationId);
+        if (log) {
+          log.lines.push(...lines);
+        }
       }
     });
 
