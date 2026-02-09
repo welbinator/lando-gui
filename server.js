@@ -47,7 +47,7 @@ async function runLandoCommand(command, cwd = null) {
 
 // Helper: Execute Lando command with live output streaming
 async function runLandoCommandWithLogs(operationId, command, cwd = null) {
-        return new Promise((resolve, reject) => {
+          return new Promise((resolve, reject) => {
     // Initialize log storage for this operation
     operationLogs.set(operationId, {
       lines: [],
@@ -75,6 +75,14 @@ async function runLandoCommandWithLogs(operationId, command, cwd = null) {
       stdio: ['ignore', 'pipe', 'pipe']
     };
 
+    // Helper to strip ANSI escape codes
+    const stripAnsi = (str) => {
+      return str.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '') // CSI sequences
+                .replace(/\x1B\][0-9];[^\x07]*\x07/g, '') // OSC sequences
+                .replace(/\x1B[=>]/g, '') // Other escape sequences
+                .replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F]/g, ''); // Control chars
+    };
+
     console.log(`[${operationId}] Spawning command: ${wrappedCommand}`);
     const child = spawn(wrappedCommand, [], options);
 
@@ -82,7 +90,7 @@ async function runLandoCommandWithLogs(operationId, command, cwd = null) {
     child.stderr.setEncoding('utf8');
 
     child.stdout.on('data', (data) => {
-      const text = data.toString();
+      const text = stripAnsi(data.toString());
       console.log(`[${operationId}] stdout:`, text);
       const lines = text.split('\n').filter(line => line.trim());
       const log = operationLogs.get(operationId);
@@ -92,7 +100,7 @@ async function runLandoCommandWithLogs(operationId, command, cwd = null) {
     });
 
     child.stderr.on('data', (data) => {
-      const text = data.toString();
+      const text = stripAnsi(data.toString());
       console.log(`[${operationId}] stderr:`, text);
       const lines = text.split('\n').filter(line => line.trim());
       const log = operationLogs.get(operationId);
@@ -778,7 +786,17 @@ app.put('/api/sites/:name/config', async (req, res) => {
     
     // Update PHP version
     if (php) {
-      content = content.replace(/php:\s*['"]?[^'\n"]+['"]?/, `php: '${php}'`);
+      if (content.includes('php:')) {
+        // Replace existing php line
+        content = content.replace(/php:\s*['"]?[^'\n"]+['"]?/, `php: '${php}'`);
+      } else {
+        // Add php line after webroot (or at end of config section)
+        if (content.includes('webroot:')) {
+          content = content.replace(/(webroot:[^\n]+)/, `$1\n  php: '${php}'`);
+        } else if (content.includes('config:')) {
+          content = content.replace(/(config:\s*)/, `$1\n  php: '${php}'`);
+        }
+      }
     }
     
     // Update database
@@ -786,8 +804,12 @@ app.put('/api/sites/:name/config', async (req, res) => {
       if (content.includes('database:')) {
         content = content.replace(/database:\s*.+/, `database: ${database}`);
       } else {
-        // Add database line after php
-        content = content.replace(/(php:\s*['"]?[^'\n"]+['"]?)/, `$1\n  database: ${database}`);
+        // Add database line after php or webroot
+        if (content.includes('php:')) {
+          content = content.replace(/(php:\s*['"]?[^'\n"]+['"]?)/, `$1\n  database: ${database}`);
+        } else if (content.includes('webroot:')) {
+          content = content.replace(/(webroot:[^\n]+)/, `$1\n  database: ${database}`);
+        }
       }
     }
     
