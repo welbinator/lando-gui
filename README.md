@@ -50,13 +50,12 @@ npm run dev
 
 ## Configuration
 
-By default, the GUI manages sites in `/home/highprrrr/lando/`.
+On first run, the setup wizard will ask you to configure:
+- **Lando binary path** (usually `/usr/local/bin/lando`)
+- **Sites directory** (where your Lando sites are stored, e.g. `~/lando`)
+- **WordPress credentials** (default username/password for new sites)
 
-To change this, edit `server.js` and update the `LANDO_BASE_DIR` constant:
-
-```javascript
-const LANDO_BASE_DIR = '/your/custom/path';
-```
+These settings are saved in `~/.landoguirc.json` and can be changed anytime from the Settings page (⚙️ icon in the GUI).
 
 ## Supported Recipes
 
@@ -72,10 +71,7 @@ const LANDO_BASE_DIR = '/your/custom/path';
 When creating a WordPress site, the GUI automatically:
 - Downloads the latest WordPress
 - Creates `wp-config.php`
-- Installs WordPress with default credentials:
-  - **Username:** james
-  - **Password:** pepsidude
-  - **Email:** james.welbes@gmail.com
+- Installs WordPress with credentials configured in Settings (or defaults if not set)
 
 ## Distributing
 
