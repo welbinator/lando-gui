@@ -106,7 +106,22 @@
       </div>
 
       <div class="setup-step">
-        <h3>3. WordPress Defaults (optional)</h3>
+        <h3>3. Default PHP Version</h3>
+        <div class="form-group">
+          <label for="defaultPhpVersion">Default PHP Version for New Sites</label>
+          <select id="defaultPhpVersion">
+            <option value="7.4">PHP 7.4</option>
+            <option value="8.0">PHP 8.0</option>
+            <option value="8.1" selected>PHP 8.1</option>
+            <option value="8.2">PHP 8.2</option>
+            <option value="8.3">PHP 8.3</option>
+          </select>
+          <small>This version will be used when creating new WordPress sites</small>
+        </div>
+      </div>
+
+      <div class="setup-step">
+        <h3>4. WordPress Defaults (optional)</h3>
         <div class="form-group">
           <label for="wpUser">Default Admin Username</label>
           <input type="text" id="wpUser" value="admin">
@@ -143,6 +158,9 @@
           // Load Lando path and sites directory
           document.getElementById('landoPath').value = config.landoPath || 'lando';
           document.getElementById('sitesDirectory').value = config.sitesDirectory || '';
+          
+          // Load default PHP version
+          document.getElementById('defaultPhpVersion').value = config.defaultPhpVersion || '8.1';
           
           // Load WordPress defaults
           if (config.wordpress) {
@@ -215,6 +233,7 @@
       const config = {
         landoPath: document.getElementById('landoPath').value,
         sitesDirectory: sitesDir,
+        defaultPhpVersion: document.getElementById('defaultPhpVersion').value,
         wordpress: {
           adminUser: document.getElementById('wpUser').value,
           adminPassword: document.getElementById('wpPassword').value,

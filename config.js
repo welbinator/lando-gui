@@ -8,6 +8,7 @@ const CONFIG_FILE = path.join(os.homedir(), '.landoguirc.json');
 const DEFAULT_CONFIG = {
   landoPath: 'auto',
   sitesDirectory: '', // User must specify this
+  defaultPhpVersion: '8.1', // Default PHP version for new sites
   wordpress: {
     adminUser: 'admin',
     adminPassword: 'admin',
