@@ -74,9 +74,20 @@ function setupEventListeners() {
   });
 }
 
-function openModal() {
+async function openModal() {
   createModal.classList.remove('hidden');
   createForm.reset();
+  
+  // Load config and set default PHP version
+  try {
+    const response = await fetch(`${API_URL}/config`);
+    const data = await response.json();
+    if (data.success && data.config && data.config.defaultPhpVersion) {
+      document.getElementById('php').value = data.config.defaultPhpVersion;
+    }
+  } catch (error) {
+    console.error('Failed to load default PHP version:', error);
+  }
 }
 
 function hideModal() {
