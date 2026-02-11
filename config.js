@@ -7,7 +7,7 @@ const CONFIG_FILE = path.join(os.homedir(), '.landoguirc.json');
 
 const DEFAULT_CONFIG = {
   landoPath: 'auto',
-  sitesDirectory: path.join(os.homedir(), 'lando'),
+  sitesDirectory: '', // User must specify this
   wordpress: {
     adminUser: 'admin',
     adminPassword: 'admin',
@@ -84,10 +84,10 @@ async function loadConfig() {
     const data = await fs.readFile(CONFIG_FILE, 'utf8');
     return { ...DEFAULT_CONFIG, ...JSON.parse(data) };
   } catch (e) {
-    // No config file yet, return defaults with auto-detection
+    // No config file yet, return defaults with Lando auto-detection only
     const config = { ...DEFAULT_CONFIG };
     config.landoPath = detectLandoPath();
-    config.sitesDirectory = await detectSitesDirectory();
+    // sitesDirectory stays empty - user must provide it
     return config;
   }
 }
