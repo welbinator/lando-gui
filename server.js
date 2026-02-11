@@ -26,7 +26,8 @@ const operationLogs = new Map();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(requestLogger);
-app.use(express.static('public'));
+// Resolve public directory relative to this file (handles global npm installs)
+app.use(express.static(path.join(__dirname, 'public')));
 
 // Helper: Execute Lando commands
 async function runLandoCommand(command, cwd = null) {
