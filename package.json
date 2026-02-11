@@ -1,8 +1,11 @@
 {
   "name": "lando-gui",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Web-based GUI for managing Lando sites",
   "main": "server.js",
+  "bin": {
+    "lando-gui": "./bin/cli.js"
+  },
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
@@ -16,10 +19,23 @@
     "lando",
     "gui",
     "wordpress",
-    "development"
+    "development",
+    "local-development",
+    "devops"
   ],
-  "author": "James Welbes",
+  "author": "James Welbes <james.welbes@gmail.com>",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/welbinator/lando-gui.git"
+  },
+  "bugs": {
+    "url": "https://github.com/welbinator/lando-gui/issues"
+  },
+  "homepage": "https://github.com/welbinator/lando-gui#readme",
+  "engines": {
+    "node": ">=14.0.0"
+  },
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.18.2"
