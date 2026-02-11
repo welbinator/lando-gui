@@ -815,6 +815,20 @@ app.post('/api/config', async (req, res) => {
   try {
     const updates = req.body;
     APP_CONFIG = { ...APP_CONFIG, ...updates };
+    
+    // Create sites directory if it doesn't exist
+    if (APP_CONFIG.sitesDirectory) {
+      try {
+        await fs.access(APP_CONFIG.sitesDirectory);
+        // Directory exists, all good
+      } catch (error) {
+        // Directory doesn't exist, create it
+        console.log(`Creating sites directory: ${APP_CONFIG.sitesDirectory}`);
+        await fs.mkdir(APP_CONFIG.sitesDirectory, { recursive: true });
+        console.log(`✓ Created sites directory: ${APP_CONFIG.sitesDirectory}`);
+      }
+    }
+    
     await config.saveConfig(APP_CONFIG);
     res.json({ success: true, config: APP_CONFIG });
   } catch (error) {

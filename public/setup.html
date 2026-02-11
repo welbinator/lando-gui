@@ -92,13 +92,15 @@
 
       <div class="setup-step">
         <h3>2. Sites Directory</h3>
-        <div id="sitesDetected" class="detected hidden">
-          ✅ Found sites at: <code id="detectedSitesDir"></code>
-        </div>
         <div class="form-group">
           <label for="sitesDirectory">Sites Directory</label>
-          <input type="text" id="sitesDirectory" placeholder="~/lando">
-          <small>Where do you keep your Lando sites?</small>
+          <input type="text" id="sitesDirectory" placeholder="/home/yourname/lando or C:\Users\yourname\lando">
+          <small>Where do you keep your Lando sites? This directory will be created if it doesn't exist.</small>
+          <small style="display:block;margin-top:0.5rem;color:#666;">
+            💡 <strong>Examples:</strong><br>
+            • Linux/Mac: <code>/home/james/lando</code> or <code>~/lando</code><br>
+            • Windows: <code>C:\Users\James\lando</code>
+          </small>
         </div>
         <div id="sitesStatus"></div>
       </div>
@@ -149,17 +151,17 @@
             document.getElementById('wpEmail').value = config.wordpress.adminEmail || 'admin@example.com';
           }
           
-          // Run detection to validate paths
-          await detectSettings();
+          // Validate Lando path only
+          await validateLandoPath();
         }
       } catch (error) {
         console.error('Failed to load config:', error);
-        // If config doesn't exist yet, run detection
-        await detectSettings();
+        // Try to detect Lando path only
+        await detectLandoPath();
       }
     }
 
-    async function detectSettings() {
+    async function detectLandoPath() {
       try {
         const response = await fetch(`${API_URL}/config/detect`);
         const data = await response.json();
@@ -167,45 +169,52 @@
         if (data.success) {
           const { detected } = data;
 
-          // Only update fields if they're currently empty
+          // Only update Lando path if field is empty
           const landoPathInput = document.getElementById('landoPath');
-          const sitesDirInput = document.getElementById('sitesDirectory');
-          
           if (!landoPathInput.value) {
             landoPathInput.value = detected.landoPath;
           }
-          
-          if (!sitesDirInput.value) {
-            sitesDirInput.value = detected.sitesDirectory;
-          }
 
-          // Show validation status for current values
-          if (detected.landoValid) {
-            document.getElementById('landoDetected').classList.remove('hidden');
-            document.getElementById('detectedLandoPath').textContent = detected.landoPath;
-            document.getElementById('landoStatus').innerHTML = '<span class="valid">✓ Lando is working!</span>';
-          } else {
-            document.getElementById('landoStatus').innerHTML = '<span class="invalid">✗ Could not verify Lando. Please check the path.</span>';
-          }
-
-          // Sites directory
-          if (detected.sitesDirectoryValid) {
-            document.getElementById('sitesDetected').classList.remove('hidden');
-            document.getElementById('detectedSitesDir').textContent = detected.sitesDirectory;
-            document.getElementById('sitesStatus').innerHTML = '<span class="valid">✓ Directory exists</span>';
-          } else {
-            document.getElementById('sitesStatus').innerHTML = '<span class="invalid">✗ Directory not found. We\'ll create it.</span>';
-          }
+          // Show validation status
+          await validateLandoPath();
         }
       } catch (error) {
-        alert('Failed to detect settings: ' + error.message);
+        console.error('Failed to detect Lando path:', error);
+      }
+    }
+
+    async function validateLandoPath() {
+      const landoPath = document.getElementById('landoPath').value;
+      
+      try {
+        const response = await fetch(`${API_URL}/config/detect`);
+        const data = await response.json();
+
+        if (data.success && data.detected.landoValid) {
+          document.getElementById('landoDetected').classList.remove('hidden');
+          document.getElementById('detectedLandoPath').textContent = landoPath;
+          document.getElementById('landoStatus').innerHTML = '<span class="valid">✓ Lando is working!</span>';
+        } else {
+          document.getElementById('landoStatus').innerHTML = '<span class="invalid">✗ Could not verify Lando. Please check the path.</span>';
+        }
+      } catch (error) {
+        document.getElementById('landoStatus').innerHTML = '<span class="invalid">✗ Could not verify Lando.</span>';
       }
     }
 
     async function saveSetup() {
+      const sitesDir = document.getElementById('sitesDirectory').value.trim();
+      
+      // Validate sites directory is provided
+      if (!sitesDir) {
+        alert('Please enter a sites directory path.');
+        document.getElementById('sitesDirectory').focus();
+        return;
+      }
+
       const config = {
         landoPath: document.getElementById('landoPath').value,
-        sitesDirectory: document.getElementById('sitesDirectory').value,
+        sitesDirectory: sitesDir,
         wordpress: {
           adminUser: document.getElementById('wpUser').value,
           adminPassword: document.getElementById('wpPassword').value,
