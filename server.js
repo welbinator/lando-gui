@@ -162,16 +162,19 @@ async function getLandoSites() {
     try {
       const services = JSON.parse(result.stdout);
       
-      // Group by directory (not app name, since Docker normalizes it)
+      // Group by app name (normalized), not directory path
+      // This handles cross-platform path differences (Windows vs Linux/WSL paths)
       for (const service of services) {
         if (service.app && service.app !== '_global_' && service.src && service.src[0]) {
           const dir = service.src[0].replace('/.lando.yml', '');
+          const folderName = path.basename(dir); // Just the folder name, cross-platform
           
-          if (!sitesMap.has(dir)) {
+          if (!sitesMap.has(folderName)) {
             const siteData = {
               app: service.app,
               running: service.running ? 'yes' : 'no',
               dir: dir,
+              folderName: folderName, // Store for later matching
               urls: service.urls || [`https://${service.app}.lndo.site`],
               recipe: 'Unknown',
               _dockerName: service.app // Keep for reference
@@ -195,7 +198,7 @@ async function getLandoSites() {
               }
             }
             
-            sitesMap.set(dir, siteData);
+            sitesMap.set(folderName, siteData);
           }
         }
       }
@@ -211,6 +214,7 @@ async function getLandoSites() {
     for (const dir of dirs) {
       const fullPath = path.join(APP_CONFIG.sitesDirectory, dir);
       const landoYmlPath = path.join(fullPath, '.lando.yml');
+      const folderName = dir; // Folder name for matching
       
       try {
         await fs.access(landoYmlPath);
@@ -236,18 +240,20 @@ async function getLandoSites() {
           
           // Only set URL if running (will be fetched from lando info above)
           // For stopped sites, just mark that it has phpMyAdmin
-          if (hasPhpMyAdmin && !sitesMap.has(fullPath)) {
+          if (hasPhpMyAdmin && !sitesMap.has(folderName)) {
             // Will be populated when site starts
             phpmyadminEnabled = true;
           }
         } catch (e) {}
         
         // Check if this directory is already in the map (from running sites)
-        if (sitesMap.has(fullPath)) {
-          // Update the running site with correct name and recipe
-          const site = sitesMap.get(fullPath);
+        // Match by folder name, not full path (handles Windows vs Linux path differences)
+        if (sitesMap.has(folderName)) {
+          // Update the running site with correct name and recipe from .lando.yml
+          const site = sitesMap.get(folderName);
           site.app = siteName; // Use name from .lando.yml (with dashes)
           site.recipe = recipe;
+          site.dir = fullPath; // Update with local filesystem path
           site.urls = [`https://${siteName}.lndo.site`]; // Correct URL with dashes
           // phpMyAdmin URL already set from lando info if running
         } else {
@@ -256,6 +262,7 @@ async function getLandoSites() {
             app: siteName,
             running: 'no',
             dir: fullPath,
+            folderName: folderName,
             urls: [`https://${siteName}.lndo.site`],
             recipe: recipe
           };
@@ -263,7 +270,7 @@ async function getLandoSites() {
           if (phpmyadminEnabled) {
             siteData.hasPhpMyAdmin = true;
           }
-          sitesMap.set(fullPath, siteData);
+          sitesMap.set(folderName, siteData);
         }
       } catch (e) {
         // No .lando.yml in this directory, skip
