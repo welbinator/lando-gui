@@ -166,7 +166,8 @@ async function getLandoSites() {
       // This handles cross-platform path differences (Windows vs Linux/WSL paths)
       for (const service of services) {
         if (service.app && service.app !== '_global_' && service.src && service.src[0]) {
-          const dir = service.src[0].replace('/.lando.yml', '');
+          // Remove .lando.yml from path (handle both / and \ separators)
+          const dir = service.src[0].replace(/[\\/]\.lando\.yml$/, '');
           const folderName = path.basename(dir); // Just the folder name, cross-platform
           
           if (!sitesMap.has(folderName)) {
