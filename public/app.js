@@ -360,6 +360,7 @@ function renderSiteCard(site) {
       <div><strong>Recipe:</strong> ${site.recipe || 'Unknown'}</div>
       <div><strong>Location:</strong> ${site.dir || 'Unknown'}</div>
       ${isRunning && site.phpmyadminUrl ? `<a href="${site.phpmyadminUrl}" target="_blank" class="btn btn-info btn-sm" style="margin-top: 0.5rem;">📊 phpMyAdmin</a>` : ''}
+      <div id="ngrok-status-${site.app}" class="ngrok-status" style="margin-top: 0.5rem;"></div>
     </div>
     <div class="site-actions">
       ${status === 'stopped' ? 
@@ -369,11 +370,16 @@ function renderSiteCard(site) {
       <button class="btn btn-secondary btn-sm" onclick="restartSite('${site.app}')">Restart</button>
       <button class="btn btn-secondary btn-sm" onclick="rebuildSite('${site.app}')">Rebuild</button>
       <button class="btn btn-danger btn-sm" onclick="confirmDeleteSite('${site.app}')">Destroy</button>
+      ${isRunning ? `<button class="btn btn-info btn-sm" onclick="toggleNgrok('${site.app}')" id="ngrok-btn-${site.app}">🌐 Make Public</button>` : ''}
     </div>
   `;
   
   sitesContainer.appendChild(card);
-}
+  
+  // Check ngrok status if site is running
+  if (isRunning) {
+    checkNgrokStatus(site.app);
+  }
 
 function showEmptyState() {
   sitesContainer.innerHTML = `
@@ -719,3 +725,99 @@ document.addEventListener('click', (e) => {
     }
   }
 });
+
+// ==================== Ngrok Functions ====================
+
+async function checkNgrokStatus(siteName) {
+  try {
+    const response = await fetch(`${API_URL}/sites/${siteName}/ngrok/status`);
+    const result = await response.json();
+    
+    if (result.active) {
+      updateNgrokUI(siteName, result.url);
+    }
+  } catch (error) {
+    console.error('Failed to check ngrok status:', error);
+  }
+}
+
+async function toggleNgrok(siteName) {
+  const statusDiv = document.getElementById(`ngrok-status-${siteName}`);
+  const btn = document.getElementById(`ngrok-btn-${siteName}`);
+  
+  // Check current status
+  try {
+    const statusResponse = await fetch(`${API_URL}/sites/${siteName}/ngrok/status`);
+    const status = await statusResponse.json();
+    
+    if (status.active) {
+      // Stop tunnel
+      btn.disabled = true;
+      btn.textContent = '🔄 Stopping...';
+      
+      const response = await fetch(`${API_URL}/sites/${siteName}/ngrok/stop`, {
+        method: 'POST'
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        statusDiv.innerHTML = '';
+        btn.textContent = '🌐 Make Public';
+        btn.classList.remove('btn-warning');
+        btn.classList.add('btn-info');
+        showToast('Tunnel stopped', 'success');
+      } else {
+        throw new Error(result.error || 'Failed to stop tunnel');
+      }
+    } else {
+      // Start tunnel
+      btn.disabled = true;
+      btn.textContent = '🔄 Starting...';
+      
+      const response = await fetch(`${API_URL}/sites/${siteName}/ngrok/start`, {
+        method: 'POST'
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        updateNgrokUI(siteName, result.url);
+        showToast('Tunnel started!', 'success');
+      } else {
+        throw new Error(result.error || 'Failed to start tunnel');
+      }
+    }
+  } catch (error) {
+    showToast(`Ngrok error: ${error.message}`, 'error');
+    btn.textContent = '🌐 Make Public';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function updateNgrokUI(siteName, url) {
+  const statusDiv = document.getElementById(`ngrok-status-${siteName}`);
+  const btn = document.getElementById(`ngrok-btn-${siteName}`);
+  
+  statusDiv.innerHTML = `
+    <div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; background: #e8f5e9; border-radius: 4px; border: 1px solid #4caf50;">
+      <span style="color: #2e7d32; font-weight: 500;">🌐 Public:</span>
+      <a href="${url}" target="_blank" style="color: #1976d2; text-decoration: none; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${url}</a>
+      <button onclick="copyToClipboard('${url}')" class="btn btn-sm" style="padding: 0.25rem 0.5rem; font-size: 0.85rem;" title="Copy URL">📋</button>
+    </div>
+  `;
+  
+  btn.textContent = '🛑 Stop Sharing';
+  btn.classList.remove('btn-info');
+  btn.classList.add('btn-warning');
+}
+
+function copyToClipboard(text) {
+  navigator.clipboard.writeText(text).then(() => {
+    showToast('URL copied to clipboard!', 'success');
+  }).catch(err => {
+    showToast('Failed to copy URL', 'error');
+    console.error('Copy failed:', err);
+  });
+}
