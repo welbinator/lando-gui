@@ -350,10 +350,40 @@ app.post('/api/sites', asyncHandler(async (req, res) => {
       // Download WordPress if recipe is wordpress
       if (recipe === 'wordpress') {
         log.lines.push('Downloading WordPress...');
-        await runLandoCommand('wget https://wordpress.org/latest.tar.gz', siteDir);
+        
+        // Use Node.js to download (cross-platform)
+        const https = require('https');
+        const tarPath = path.join(siteDir, 'latest.tar.gz');
+        
+        await new Promise((resolve, reject) => {
+          const file = require('fs').createWriteStream(tarPath);
+          https.get('https://wordpress.org/latest.tar.gz', (response) => {
+            response.pipe(file);
+            file.on('finish', () => {
+              file.close(resolve);
+            });
+          }).on('error', (err) => {
+            require('fs').unlink(tarPath, () => {});
+            reject(err);
+          });
+        });
         
         log.lines.push('Extracting WordPress files...');
-        await runLandoCommand('tar -xzf latest.tar.gz && mv wordpress/* . && rm -rf wordpress latest.tar.gz', siteDir);
+        
+        // Use tar command (works on both platforms with WSL/Git Bash/native)
+        const { execSync } = require('child_process');
+        execSync(`tar -xzf latest.tar.gz`, { cwd: siteDir });
+        
+        // Move files from wordpress/ to root (cross-platform)
+        const wpDir = path.join(siteDir, 'wordpress');
+        const files = await fs.readdir(wpDir);
+        for (const file of files) {
+          await fs.rename(path.join(wpDir, file), path.join(siteDir, file));
+        }
+        
+        // Cleanup
+        await fs.rmdir(wpDir);
+        await fs.unlink(tarPath);
       }
 
       // Create .lando.yml
