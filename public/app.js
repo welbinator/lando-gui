@@ -380,6 +380,7 @@ function renderSiteCard(site) {
   if (isRunning) {
     checkNgrokStatus(site.app);
   }
+}
 
 function showEmptyState() {
   sitesContainer.innerHTML = `
