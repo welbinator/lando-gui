@@ -359,7 +359,7 @@ function renderSiteCard(site) {
       ${isRunning ? `<a href="${mainUrl}/wp-admin" target="_blank" class="site-url" style="font-size: 0.9rem; opacity: 0.8;">${mainUrl}/wp-admin</a>` : ''}
       <div><strong>Recipe:</strong> ${site.recipe || 'Unknown'}</div>
       <div><strong>Location:</strong> ${site.dir || 'Unknown'}</div>
-      ${isRunning && site.phpmyadminUrl ? `<a href="${site.phpmyadminUrl}" target="_blank" class="btn btn-info btn-sm" style="margin-top: 0.5rem;">📊 phpMyAdmin</a>` : ''}
+      
       <div id="ngrok-status-${site.app}" class="ngrok-status" style="margin-top: 0.5rem;"></div>
     </div>
     <div class="site-actions">
@@ -370,6 +370,7 @@ function renderSiteCard(site) {
       <button class="btn btn-secondary btn-sm" onclick="restartSite('${site.app}')">Restart</button>
       <button class="btn btn-secondary btn-sm" onclick="rebuildSite('${site.app}')">Rebuild</button>
       <button class="btn btn-danger btn-sm" onclick="confirmDeleteSite('${site.app}')">Destroy</button>
+      ${isRunning && site.phpmyadminUrl ? `<a href="${site.phpmyadminUrl}" target="_blank" class="btn btn-info btn-sm">📊 phpMyAdmin</a>` : ''}
       ${isRunning ? `<button class="btn btn-info btn-sm" onclick="toggleNgrok('${site.app}')" id="ngrok-btn-${site.app}">🌐 Make Public</button>` : ''}
     </div>
   `;
