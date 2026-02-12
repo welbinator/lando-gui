@@ -1,6 +1,6 @@
 {
   "name": "lando-gui",
-  "version": "1.7.1",
+  "version": "1.8.0",
   "description": "Web-based GUI for managing Lando sites",
   "main": "server.js",
   "bin": {

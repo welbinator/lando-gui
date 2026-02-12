@@ -22,6 +22,10 @@ let APP_CONFIG = null;
 // Operation logs storage (in-memory)
 const operationLogs = new Map();
 
+// Ngrok tunnels storage (in-memory)
+// Map<siteName, { process, url, port }>
+const ngrokTunnels = new Map();
+
 // Middleware setup
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
@@ -980,6 +984,166 @@ app.put('/api/sites/:name/config', asyncHandler(async (req, res) => {
   await fs.writeFile(landoYmlPath, content);
   
   res.json({ success: true, message: 'Configuration updated' });
+}));
+
+// POST /api/sites/:name/ngrok/start - Start ngrok tunnel
+app.post('/api/sites/:name/ngrok/start', asyncHandler(async (req, res) => {
+  const { name } = req.params;
+  validateSiteName(name);
+  
+  // Check if tunnel already exists
+  if (ngrokTunnels.has(name)) {
+    const existing = ngrokTunnels.get(name);
+    return res.json({ 
+      success: true, 
+      url: existing.url,
+      message: 'Tunnel already active'
+    });
+  }
+  
+  // Get site info to find the port
+  const sites = await getLandoSites();
+  const site = sites.find(s => s.app === name);
+  
+  if (!site) {
+    throw new AppError(`Site ${name} not found`, 404);
+  }
+  
+  // Check if site is running
+  if (site.running !== 'yes') {
+    throw new AppError(`Site must be running to create tunnel. Start the site first.`, 400);
+  }
+  
+  // Get lando info to find the HTTPS port
+  const siteDir = site.dir;
+  const { stdout } = await execAsync(`${APP_CONFIG.landoPath} info --format json`, { cwd: siteDir });
+  const info = JSON.parse(stdout);
+  
+  // Find the appserver HTTPS URL
+  const appserver = info.find(service => service.service === 'appserver');
+  if (!appserver || !appserver.urls) {
+    throw new AppError('Could not find site URLs', 500);
+  }
+  
+  // Get the localhost HTTPS URL
+  const localhostUrl = appserver.urls.find(url => url.startsWith('https://localhost:'));
+  if (!localhostUrl) {
+    throw new AppError('Could not find localhost HTTPS URL', 500);
+  }
+  
+  // Extract port from URL
+  const portMatch = localhostUrl.match(/:(\d+)/);
+  if (!portMatch) {
+    throw new AppError('Could not extract port from URL', 500);
+  }
+  const port = portMatch[1];
+  
+  // Find ngrok binary
+  let ngrokPath = '/tmp/ngrok'; // Default from our install
+  try {
+    await fs.access(ngrokPath);
+  } catch (error) {
+    // Try system path
+    try {
+      await execAsync('which ngrok');
+      ngrokPath = 'ngrok';
+    } catch {
+      throw new AppError('ngrok not found. Please install ngrok first.', 500);
+    }
+  }
+  
+  // Start ngrok tunnel
+  const ngrokProcess = spawn(ngrokPath, [
+    'http',
+    `https://localhost:${port}`,
+    '--host-header', `${name}.lndo.site`,
+    '--log', 'stdout'
+  ]);
+  
+  // Wait for URL to appear in output
+  let ngrokUrl = null;
+  const urlPromise = new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      ngrokProcess.kill();
+      reject(new Error('Timeout waiting for ngrok URL'));
+    }, 10000);
+    
+    ngrokProcess.stdout.on('data', (data) => {
+      const output = data.toString();
+      const match = output.match(/url=(https:\/\/[^\s]+)/);
+      if (match) {
+        clearTimeout(timeout);
+        resolve(match[1]);
+      }
+    });
+    
+    ngrokProcess.stderr.on('data', (data) => {
+      console.error(`ngrok stderr: ${data}`);
+    });
+    
+    ngrokProcess.on('error', (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    
+    ngrokProcess.on('exit', (code) => {
+      if (code !== 0 && !ngrokUrl) {
+        clearTimeout(timeout);
+        reject(new Error(`ngrok exited with code ${code}`));
+      }
+    });
+  });
+  
+  try {
+    ngrokUrl = await urlPromise;
+    
+    // Store tunnel info
+    ngrokTunnels.set(name, {
+      process: ngrokProcess,
+      url: ngrokUrl,
+      port: port
+    });
+    
+    res.json({ success: true, url: ngrokUrl });
+  } catch (error) {
+    throw new AppError(`Failed to start ngrok: ${error.message}`, 500);
+  }
+}));
+
+// POST /api/sites/:name/ngrok/stop - Stop ngrok tunnel
+app.post('/api/sites/:name/ngrok/stop', asyncHandler(async (req, res) => {
+  const { name } = req.params;
+  validateSiteName(name);
+  
+  if (!ngrokTunnels.has(name)) {
+    throw new AppError('No active tunnel found', 404);
+  }
+  
+  const tunnel = ngrokTunnels.get(name);
+  tunnel.process.kill();
+  ngrokTunnels.delete(name);
+  
+  res.json({ success: true, message: 'Tunnel stopped' });
+}));
+
+// GET /api/sites/:name/ngrok/status - Get ngrok tunnel status
+app.get('/api/sites/:name/ngrok/status', asyncHandler(async (req, res) => {
+  const { name } = req.params;
+  validateSiteName(name);
+  
+  if (ngrokTunnels.has(name)) {
+    const tunnel = ngrokTunnels.get(name);
+    res.json({ 
+      success: true, 
+      active: true,
+      url: tunnel.url
+    });
+  } else {
+    res.json({ 
+      success: true, 
+      active: false 
+    });
+  }
 }));
 
 // 404 handler - must be after all routes
