@@ -1081,9 +1081,11 @@ app.post('/api/sites/:name/ngrok/start', asyncHandler(async (req, res) => {
   try {
     await fs.access(ngrokPath);
   } catch (error) {
-    // Try system path
+    // Try system path (cross-platform)
     try {
-      await execAsync('which ngrok');
+      const isWindows = process.platform === 'win32';
+      const command = isWindows ? 'where ngrok' : 'which ngrok';
+      await execAsync(command);
       ngrokPath = 'ngrok';
     } catch {
       throw new AppError('ngrok not found. Please install ngrok first.', 500);
