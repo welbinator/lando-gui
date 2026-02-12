@@ -166,7 +166,8 @@ async function getLandoSites() {
       // This handles cross-platform path differences (Windows vs Linux/WSL paths)
       for (const service of services) {
         if (service.app && service.app !== '_global_' && service.src && service.src[0]) {
-          const dir = service.src[0].replace('/.lando.yml', '');
+          // Remove .lando.yml from path (handle both / and \ separators)
+          const dir = service.src[0].replace(/[\\/]\.lando\.yml$/, '');
           const folderName = path.basename(dir); // Just the folder name, cross-platform
           
           if (!sitesMap.has(folderName)) {
@@ -349,10 +350,40 @@ app.post('/api/sites', asyncHandler(async (req, res) => {
       // Download WordPress if recipe is wordpress
       if (recipe === 'wordpress') {
         log.lines.push('Downloading WordPress...');
-        await runLandoCommand('wget https://wordpress.org/latest.tar.gz', siteDir);
+        
+        // Use Node.js to download (cross-platform)
+        const https = require('https');
+        const tarPath = path.join(siteDir, 'latest.tar.gz');
+        
+        await new Promise((resolve, reject) => {
+          const file = require('fs').createWriteStream(tarPath);
+          https.get('https://wordpress.org/latest.tar.gz', (response) => {
+            response.pipe(file);
+            file.on('finish', () => {
+              file.close(resolve);
+            });
+          }).on('error', (err) => {
+            require('fs').unlink(tarPath, () => {});
+            reject(err);
+          });
+        });
         
         log.lines.push('Extracting WordPress files...');
-        await runLandoCommand('tar -xzf latest.tar.gz && mv wordpress/* . && rm -rf wordpress latest.tar.gz', siteDir);
+        
+        // Use tar command (works on both platforms with WSL/Git Bash/native)
+        const { execSync } = require('child_process');
+        execSync(`tar -xzf latest.tar.gz`, { cwd: siteDir });
+        
+        // Move files from wordpress/ to root (cross-platform)
+        const wpDir = path.join(siteDir, 'wordpress');
+        const files = await fs.readdir(wpDir);
+        for (const file of files) {
+          await fs.rename(path.join(wpDir, file), path.join(siteDir, file));
+        }
+        
+        // Cleanup
+        await fs.rmdir(wpDir);
+        await fs.unlink(tarPath);
       }
 
       // Create .lando.yml
@@ -1050,9 +1081,11 @@ app.post('/api/sites/:name/ngrok/start', asyncHandler(async (req, res) => {
   try {
     await fs.access(ngrokPath);
   } catch (error) {
-    // Try system path
+    // Try system path (cross-platform)
     try {
-      await execAsync('which ngrok');
+      const isWindows = process.platform === 'win32';
+      const command = isWindows ? 'where ngrok' : 'which ngrok';
+      await execAsync(command);
       ngrokPath = 'ngrok';
     } catch {
       throw new AppError('ngrok not found. Please install ngrok first.', 500);
