@@ -1010,7 +1010,7 @@ app.post('/api/sites/:name/ngrok/start', asyncHandler(async (req, res) => {
   }
   
   // Check if site is running
-  if (site.status !== 'running') {
+  if (site.running !== 'yes') {
     throw new AppError(`Site must be running to create tunnel. Start the site first.`, 400);
   }
   
