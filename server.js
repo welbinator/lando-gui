@@ -687,8 +687,12 @@ app.post('/api/sites/:name/migrate-mysql', async (req, res) => {
             content += `\nservices:\n  myservice:\n    type: phpmyadmin\n`;
           }
         } else if (!phpmyadmin && hasPhpMyAdmin) {
-          content = content.replace(/services:\s*\n\s*myservice:\s*\n\s*type:\s*phpmyadmin\s*\n?/, '');
-          content = content.replace(/\nservices:\s*\n?$/, '');
+          // Remove phpMyAdmin service - handle both the service name and type lines
+          content = content.replace(/\n\s*myservice:\s*\n\s*type:\s*phpmyadmin\s*/g, '');
+          // Also try alternate spacing patterns
+          content = content.replace(/\n\s*myservice:\s*\n\s*type:\s*phpmyadmin/g, '');
+          // Clean up empty services section if it's the last thing
+          content = content.replace(/\nservices:\s*\n*$/m, '');
         }
         
         await fs.writeFile(landoYmlPath, content);
@@ -1013,9 +1017,12 @@ app.put('/api/sites/:name/config', asyncHandler(async (req, res) => {
       content += `\nservices:\n  myservice:\n    type: phpmyadmin\n`;
     }
   } else if (!phpmyadmin && hasPhpMyAdmin) {
-    // Remove phpMyAdmin service
-    content = content.replace(/services:\s*\n\s*myservice:\s*\n\s*type:\s*phpmyadmin\s*\n?/, '');
-    content = content.replace(/\nservices:\s*\n?$/, ''); // Remove empty services section
+    // Remove phpMyAdmin service - handle both the service name and type lines
+    content = content.replace(/\n\s*myservice:\s*\n\s*type:\s*phpmyadmin\s*/g, '');
+    // Also try alternate spacing patterns
+    content = content.replace(/\n\s*myservice:\s*\n\s*type:\s*phpmyadmin/g, '');
+    // Clean up empty services section if it's the last thing
+    content = content.replace(/\nservices:\s*\n*$/m, '');
   }
   
   // Write updated .lando.yml
