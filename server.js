@@ -170,6 +170,16 @@ async function getLandoSites() {
           const dir = service.src[0].replace(/[\\/]\.lando\.yml$/, '');
           const folderName = path.basename(dir); // Just the folder name, cross-platform
           
+          // Only include sites that are in the configured sites directory
+          const expectedPath = path.join(APP_CONFIG.sitesDirectory, folderName);
+          const normalizedDir = path.normalize(dir);
+          const normalizedExpected = path.normalize(expectedPath);
+          
+          // Skip if this site is not in the configured directory
+          if (normalizedDir !== normalizedExpected) {
+            continue;
+          }
+          
           if (!sitesMap.has(folderName)) {
             const siteData = {
               app: service.app,
