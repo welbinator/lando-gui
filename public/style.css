@@ -24,7 +24,7 @@ body {
 }
 
 .container {
-  max-width: 1400px;
+  max-width: 1460px;
   margin: 0 auto;
   padding: 2rem;
 }
@@ -116,77 +116,257 @@ h1 {
 /* Sites Grid */
 .sites-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+  gap: 24px;
+  max-width: 1460px;
+  margin: 0 auto;
 }
 
+/* --- Card Container Styles --- */
 .site-card {
-  background: white;
+  background: #fff;
   border-radius: 12px;
-  padding: 1.5rem;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-  transition: transform 0.2s, box-shadow 0.2s;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #e0e0e0;
+  border-top-width: 6px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .site-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  box-shadow: 0 6px 14px rgba(0,0,0,0.1);
 }
 
-.site-header {
+/* --- Status Indicators (Visual State) --- */
+.site-card.status-running {
+  border-top-color: #28a745;
+}
+
+.site-card.status-running .status-badge {
+  color: #28a745;
+  background: #e6f5e9;
+}
+
+.site-card.status-running .status-dot {
+  background-color: #28a745;
+}
+
+.site-card.status-stopped {
+  border-top-color: #dc3545;
+}
+
+.site-card.status-stopped .status-badge {
+  color: #dc3545;
+  background: #fde8ea;
+}
+
+.site-card.status-stopped .status-dot {
+  background-color: #dc3545;
+}
+
+/* --- ZONE 1: Header --- */
+.card-header {
+  padding: 16px 20px;
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1rem;
+  align-items: flex-start;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.header-main {
+  flex-grow: 1;
 }
 
 .site-name {
+  margin: 0 0 8px 0;
   font-size: 1.25rem;
-  font-weight: 600;
-  color: var(--dark);
+  font-weight: 700;
 }
 
-.site-status {
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.status-dot {
+  height: 8px;
+  width: 8px;
+  border-radius: 50%;
   display: inline-block;
-  padding: 0.25rem 0.75rem;
-  border-radius: 12px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
+  margin-right: 6px;
 }
 
-.site-status.running {
-  background: #d4edda;
-  color: #155724;
+.settings-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  color: #999;
+  transition: color 0.2s;
 }
 
-.site-status.stopped {
-  background: #f8d7da;
-  color: #721c24;
+.settings-btn:hover {
+  color: #333;
 }
 
-.site-info {
-  margin-bottom: 1rem;
-  color: var(--secondary);
-  font-size: 0.9rem;
+/* --- ZONE 2: Data Body --- */
+.card-body {
+  padding: 20px;
+  flex-grow: 1;
 }
 
-.site-url {
-  display: block;
-  color: var(--primary);
+.data-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 16px 0;
+}
+
+.data-list li {
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+}
+
+.data-link {
+  color: #007bff;
   text-decoration: none;
-  margin-bottom: 0.5rem;
   font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.site-url:hover {
+.data-link:hover {
   text-decoration: underline;
 }
 
-.site-actions {
+.meta-secondary {
+  font-size: 0.9em;
+  color: #666;
+  padding-top: 12px;
+  border-top: 1px solid #eee;
   display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.meta-separator {
+  color: #ccc;
+}
+
+/* --- ZONE 3: Utility Buttons (PHP/Public) --- */
+.card-utility-actions {
+  padding: 12px 20px;
+  display: flex;
+  gap: 12px;
+  background: #fafafa;
+  border-top: 1px solid #f0f0f0;
+}
+
+.btn-utility {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #d0d7de;
+  background: white;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.9em;
+  color: #24292f;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-decoration: none;
+}
+
+.btn-utility:hover:not([disabled]) {
+  border-color: #999;
+  background: #f3f4f6;
+}
+
+.btn-utility[disabled] {
+  opacity: 0.4;
+  cursor: not-allowed;
+  background: #f8f9fa;
+  color: #999;
+}
+
+/* --- ZONE 4: State Actions Footer --- */
+.card-state-actions {
+  display: flex;
+}
+
+.btn-state {
+  flex: 1;
+  padding: 12px 4px;
+  border: none;
+  border-top: 1px solid #e0e0e0;
+  background: #fff;
+  font-weight: 600;
+  font-size: 0.85em;
+  color: #555;
+  cursor: pointer;
+  transition: background 0.2s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn-state:not(:last-child) {
+  border-right: 1px solid #f0f0f0;
+}
+
+.btn-state:hover:not([disabled]) {
+  background: #f4f6f8;
+  color: #000;
+}
+
+.btn-state[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-state.destroy-btn {
+  color: #dc3545;
+  background: #fff8f8;
+}
+
+.btn-state.destroy-btn:hover {
+  background: #ffebee;
+  color: #c82333;
+}
+
+/* SVG Icon styling */
+.svg-icon {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+  opacity: 0.7;
+}
+
+.btn-state .svg-icon {
+  width: 18px;
+  height: 18px;
+  opacity: 1;
+}
+
+.data-list .svg-icon {
+  margin-right: 10px;
+  color: #777;
+}
+
+/* ngrok status in card body */
+.ngrok-status {
+  margin-top: 0.5rem;
 }
 
 /* Modal */
