@@ -391,20 +391,16 @@ function renderSiteCard(site) {
       <div id="ngrok-status-${site.app}" class="ngrok-status"></div>
     </div>
     
-    ${isRunning && (site.phpmyadminUrl || true) ? `
     <div class="card-utility-actions">
-      ${site.phpmyadminUrl ? `
-        <a href="${site.phpmyadminUrl}" target="_blank" class="btn-utility">
-          ${clockIcon}
-          phpMyAdmin
-        </a>
-      ` : ''}
-      <button class="btn-utility" id="ngrok-btn-${site.app}" data-site="${site.app}" data-action="make-public">
+      <button class="btn-utility" id="phpmyadmin-btn-${site.app}" data-site="${site.app}" data-action="phpmyadmin" data-url="${site.phpmyadminUrl || ''}" ${!site.phpmyadminUrl || !isRunning ? 'disabled' : ''}>
+        ${clockIcon}
+        phpMyAdmin
+      </button>
+      <button class="btn-utility" id="ngrok-btn-${site.app}" data-site="${site.app}" data-action="make-public" ${!isRunning ? 'disabled' : ''}>
         ${eyeIcon}
         Make Public
       </button>
     </div>
-    ` : ''}
     
     <footer class="card-state-actions">
       ${status === 'running' ? `
@@ -812,14 +808,25 @@ document.addEventListener('click', (e) => {
     }
   }
   
-  // Handle utility button clicks (Make Public)
+  // Handle utility button clicks (Make Public, phpMyAdmin)
   if (e.target.classList.contains('btn-utility') || e.target.closest('.btn-utility')) {
     const btn = e.target.classList.contains('btn-utility') ? e.target : e.target.closest('.btn-utility');
+    
+    // Don't do anything if button is disabled
+    if (btn.disabled) return;
+    
     const action = btn.getAttribute('data-action');
     const siteName = btn.getAttribute('data-site');
     
-    if (siteName && action === 'make-public') {
-      toggleNgrok(siteName);
+    if (siteName) {
+      if (action === 'make-public') {
+        toggleNgrok(siteName);
+      } else if (action === 'phpmyadmin') {
+        const url = btn.getAttribute('data-url');
+        if (url) {
+          window.open(url, '_blank');
+        }
+      }
     }
   }
 });

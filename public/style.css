@@ -287,9 +287,16 @@ h1 {
   text-decoration: none;
 }
 
-.btn-utility:hover {
+.btn-utility:hover:not([disabled]) {
   border-color: #999;
   background: #f3f4f6;
+}
+
+.btn-utility[disabled] {
+  opacity: 0.4;
+  cursor: not-allowed;
+  background: #f8f9fa;
+  color: #999;
 }
 
 /* --- ZONE 4: State Actions Footer --- */
