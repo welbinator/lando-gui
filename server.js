@@ -1093,20 +1093,52 @@ app.post('/api/sites/:name/ngrok/start', asyncHandler(async (req, res) => {
   }
   const port = portMatch[1];
   
-  // Find ngrok binary
-  let ngrokPath = '/tmp/ngrok'; // Default from our install
-  try {
-    await fs.access(ngrokPath);
-  } catch (error) {
-    // Try system path (cross-platform)
+  // Find ngrok binary - check multiple common installation locations
+  const os = require('os');
+  const isWindows = process.platform === 'win32';
+  
+  const commonPaths = [
+    '/tmp/ngrok', // Default from install script
+    path.join(os.homedir(), '.local/bin/ngrok'), // Linux user install
+    '/usr/local/bin/ngrok', // macOS Homebrew / Linux system
+    '/usr/bin/ngrok', // Linux system
+    '/snap/bin/ngrok', // Linux snap
+    ...(isWindows ? [
+      path.join(os.homedir(), 'AppData/Local/ngrok/ngrok.exe'),
+      'C:\\Program Files\\ngrok\\ngrok.exe',
+      'C:\\ngrok\\ngrok.exe'
+    ] : [])
+  ];
+  
+  let ngrokPath = null;
+  
+  // Check each common path
+  for (const testPath of commonPaths) {
     try {
-      const isWindows = process.platform === 'win32';
-      const command = isWindows ? 'where ngrok' : 'which ngrok';
-      await execAsync(command);
-      ngrokPath = 'ngrok';
+      await fs.access(testPath, fs.constants.X_OK);
+      ngrokPath = testPath;
+      break;
     } catch {
-      throw new AppError('ngrok not found. Please install ngrok first.', 500);
+      // Continue to next path
     }
+  }
+  
+  // If not found in common paths, try system PATH
+  if (!ngrokPath) {
+    try {
+      const command = isWindows ? 'where ngrok' : 'which ngrok';
+      const result = await execAsync(command);
+      ngrokPath = result.stdout.trim().split('\n')[0]; // Use first result
+    } catch {
+      // Still not found
+    }
+  }
+  
+  if (!ngrokPath) {
+    throw new AppError(
+      'ngrok not found. Please install ngrok from https://ngrok.com/download or run: npm install -g ngrok',
+      500
+    );
   }
   
   // Start ngrok tunnel
