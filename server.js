@@ -589,13 +589,80 @@ app.post('/api/sites/:name/rebuild', asyncHandler(async (req, res) => {
   
   // Send immediate response with operation ID
   res.json({ success: true, operationId });
-  
+
+  // Initialize log storage
+  operationLogs.set(operationId, {
+    lines: [],
+    completed: false,
+    success: null,
+    error: null
+  });
+
+  const log = operationLogs.get(operationId);
+
+  // Helper to run a step and append output to log
+  const runStep = async (stepMsg, command) => {
+    log.lines.push(stepMsg);
+    try {
+      const { stdout, stderr } = await execPromise(command, { cwd: siteDir });
+      if (stdout) stdout.split('\n').filter(l => l.trim()).forEach(line => log.lines.push(line));
+      if (stderr) stderr.split('\n').filter(l => l.trim()).forEach(line => log.lines.push(line));
+      return { success: true };
+    } catch (error) {
+      log.lines.push(`❌ Error: ${error.message}`);
+      throw error;
+    }
+  };
+
   // Start the operation asynchronously
-  try {
-    await runLandoCommandWithLogs(operationId, 'lando rebuild -y', siteDir);
-  } catch (error) {
-    console.error(`Error rebuilding ${name}:`, error.message);
-  }
+  (async () => {
+    try {
+      // Step 1: Back up the database before rebuilding
+      const now = new Date();
+      const dateStr = `${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}-${now.getFullYear()}`;
+      const backupFileName = `${name}-${dateStr}.sql`;
+      const backupsDir = path.join(__dirname, 'backups');
+
+      await fs.mkdir(backupsDir, { recursive: true });
+
+      log.lines.push(`📦 Step 1/2: Backing up database to backups/${backupFileName}...`);
+      try {
+        const { stdout, stderr } = await execPromise(`lando db-export ${backupFileName}`, { cwd: siteDir });
+        if (stdout) stdout.split('\n').filter(l => l.trim()).forEach(line => log.lines.push(line));
+        if (stderr) stderr.split('\n').filter(l => l.trim()).forEach(line => log.lines.push(line));
+
+        // Lando adds .gz automatically — move to backups dir
+        const exportedFile = path.join(siteDir, `${backupFileName}.gz`);
+        const destFile = path.join(backupsDir, `${backupFileName}.gz`);
+        await fs.rename(exportedFile, destFile).catch(async () => {
+          // Try without .gz in case lando didn't compress it
+          const exportedFileRaw = path.join(siteDir, backupFileName);
+          await fs.rename(exportedFileRaw, path.join(backupsDir, backupFileName));
+        });
+
+        log.lines.push(`✅ Database backed up to backups/${backupFileName}.gz`);
+      } catch (backupError) {
+        log.lines.push(`⚠️  Database backup failed (${backupError.message}) — continuing with rebuild anyway.`);
+      }
+      log.lines.push('');
+
+      // Step 2: Rebuild
+      log.lines.push('🔨 Step 2/2: Rebuilding site...');
+      await runLandoCommandWithLogs(operationId, 'lando rebuild -y', siteDir);
+
+      log.lines.push('');
+      log.lines.push('🎉 Rebuild completed successfully!');
+      log.completed = true;
+      log.success = true;
+    } catch (error) {
+      console.error(`Error rebuilding ${name}:`, error.message);
+      log.lines.push('');
+      log.lines.push(`❌ Rebuild failed: ${error.message}`);
+      log.completed = true;
+      log.success = false;
+      log.error = error.message;
+    }
+  })();
 }));
 
 // POST /api/sites/:name/migrate-mysql - Safe MySQL version change with export/import
@@ -615,6 +682,11 @@ app.post('/api/sites/:name/migrate-mysql', async (req, res) => {
     const siteDir = site.dir;
     const operationId = `migrate-mysql-${name}-${Date.now()}`;
     const backupFile = `backup-${Date.now()}.sql`;  // Lando adds .gz automatically
+
+    // Permanent backup copy — saved to backups/ folder
+    const now = new Date();
+    const dateStr = `${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}-${now.getFullYear()}`;
+    const permanentBackupName = `${name}-${dateStr}.sql`;
     
     console.log(`Migrating MySQL for ${name} to ${database}`);
     
@@ -655,6 +727,18 @@ app.post('/api/sites/:name/migrate-mysql', async (req, res) => {
         // Step 1: Export database
         await runStep('📦 Step 1/5: Exporting database...', `lando db-export ${backupFile}`);
         log.lines.push(`✅ Database exported to ${backupFile}`);
+
+        // Also save a permanent copy to backups/
+        try {
+          const backupsDir = path.join(__dirname, 'backups');
+          await fs.mkdir(backupsDir, { recursive: true });
+          const exportedFile = path.join(siteDir, `${backupFile}.gz`);
+          const destFile = path.join(backupsDir, `${permanentBackupName}.gz`);
+          await fs.copyFile(exportedFile, destFile);
+          log.lines.push(`💾 Permanent backup saved to backups/${permanentBackupName}.gz`);
+        } catch (copyErr) {
+          log.lines.push(`⚠️  Could not save permanent backup: ${copyErr.message}`);
+        }
         log.lines.push('');
         
         // Step 2: Update config

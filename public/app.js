@@ -506,6 +506,7 @@ async function startSite(name) {
     } else if (result.needsRebuild) {
       const shouldRebuild = confirm(
         `⚠️ ${name} has a Docker network error and needs to be rebuilt.\n\n` +
+        `A backup of your database will be saved to the backups/ folder before rebuilding.\n\n` +
         `Click OK to rebuild now (this will take a few minutes), or Cancel to do it manually.`
       );
       
@@ -799,7 +800,15 @@ document.addEventListener('click', (e) => {
           restartSite(siteName);
           break;
         case 'rebuild':
-          rebuildSite(siteName);
+          if (confirm(
+            `⚠️ Rebuild "${siteName}"?\n\n` +
+            `This will recreate the site's containers. In rare cases (e.g. after a config change), ` +
+            `Lando may recreate database volumes and your data could be lost.\n\n` +
+            `A backup of your database will be saved to the backups/ folder before rebuilding.\n\n` +
+            `Click OK to continue.`
+          )) {
+            rebuildSite(siteName);
+          }
           break;
         case 'destroy':
           confirmDeleteSite(siteName);
