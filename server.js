@@ -619,7 +619,7 @@ app.post('/api/sites/:name/rebuild', asyncHandler(async (req, res) => {
     try {
       // Step 1: Back up the database before rebuilding
       const now = new Date();
-      const dateStr = `${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}-${now.getFullYear()}`;
+      const dateStr = `${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}-${now.getFullYear()}-${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}-${String(now.getSeconds()).padStart(2, '0')}`;
       const backupFileName = `${name}-${dateStr}.sql`;
       const backupsDir = path.join(__dirname, 'backups');
 
@@ -685,7 +685,7 @@ app.post('/api/sites/:name/migrate-mysql', async (req, res) => {
 
     // Permanent backup copy — saved to backups/ folder
     const now = new Date();
-    const dateStr = `${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}-${now.getFullYear()}`;
+    const dateStr = `${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}-${now.getFullYear()}-${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}-${String(now.getSeconds()).padStart(2, '0')}`;
     const permanentBackupName = `${name}-${dateStr}.sql`;
     
     console.log(`Migrating MySQL for ${name} to ${database}`);
